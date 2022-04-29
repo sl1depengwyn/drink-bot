@@ -21,6 +21,26 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 dependencies:
 - base >= 4.7 && < 5
+- containers
+- aeson
+- http-conduit
+- text
+- bytestring
+- yaml
+- mtl
+- time
+- random
+- product-profunctors
+- postgresql-simple
+- resource-pool
+- beam-core
+- beam-postgres
+- beam-migrate
+
+default-extensions:
+- OverloadedStrings
+- DeriveGeneric
+
 
 library:
   source-dirs: src

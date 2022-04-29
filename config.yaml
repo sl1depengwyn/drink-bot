@@ -1,0 +1,17 @@
+
+database:
+  connection_string: "<inser your connection string according to postgresql documentation https://www.postgresql.org/docs/9.5/libpq-connect.html#LIBPQ-CONNSTRING>"
+
+bot:
+  # use eiher vk or tg in case you are using telegram bot or vk bot respectively
+  host: tg
+  token: "<insert your api key here>"
+  # if using vk 
+  group_id: "<group id>"
+  # message is sent in response to /help command
+  help_message: "help"
+  # message is sent in response to unsupported message
+  fail_message: "in case of fail"
+
+logger:
+  verbosity: debug
