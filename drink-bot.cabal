@@ -28,6 +28,7 @@ library
       Bot.Bot
       Bot.Database.Database
       Bot.Database.Migration
+      Bot.Database.Types
       Bot.Logger
       Bot.Main
       Bot.Tg

@@ -1,55 +1,34 @@
 module Bot.Database.Database where
 
-import           Database.Beam
-import           Database.Beam.Postgres
+import qualified Data.Aeson.Extended as A
+import qualified Data.Text as T
+import qualified Data.Text.Encoding         as T
+import Data.Time (UTCTime)
+import Database.Beam
+import Database.Beam.Postgres
+import qualified Database.PostgreSQL.Simple as PGS
+import qualified Data.Pool                  as Pool
+import Bot.Database.Migration
 
-import qualified Data.Text              as T
-import           Data.Time              (UTCTime)
+newtype Config = Config
+  { cConnectionString :: T.Text
+  }
+  deriving (Show, Generic)
 
-newtype UserT f =
-  User
-    { _userId :: Columnar f Int
-    }
-  deriving (Generic, Beamable)
+instance A.FromJSON Config where
+  parseJSON = A.genericParseJSON A.customOptions
 
-type User = UserT Identity
+data Handle = Handle
+  { hConfig :: Config
+  , hPool   :: Pool.Pool PGS.Connection
+  }
 
-deriving instance Show User
-
-deriving instance Eq User
-
-instance Table UserT where
-  data PrimaryKey UserT f = UserId (Columnar f Int)
-                            deriving (Generic, Beamable)
-  primaryKey = UserId . _userId
-
-data RecordT f =
-  Record
-    { _ruserId    :: Columnar f Int
-    , _rmessageId :: Columnar f Int
-    , _ramount    :: Columnar f Int
-    , _rtimeStamp :: Columnar f UTCTime
-    }
-  deriving (Generic, Beamable)
-
-type Record = RecordT Identity
-
-deriving instance Show Record
-
-deriving instance Eq Record
-
-instance Table RecordT where
-  data PrimaryKey RecordT f = RecordId (Columnar f Int)
-                                     (Columnar f Int)
-                              deriving (Generic, Beamable)
-  primaryKey = RecordId <$> _ruserId <*> _rmessageId
-
-data DrinkDb f =
-  DrinkDb
-    { _dUsers   :: f (TableEntity UserT)
-    , _dRecords :: f (TableEntity RecordT)
-    }
-  deriving (Generic, Database Postgres)
-
-drinkDb :: DatabaseSettings Postgres DrinkDb
-drinkDb = defaultDbSettings
+withHandle :: Config -> (Handle -> IO a) -> IO a
+withHandle conf f = do
+  let connString = cConnectionString conf
+  pool <- Pool.createPool (PGS.connectPostgreSQL $ T.encodeUtf8 connString) PGS.close 1 10 4
+  let h = Handle conf pool
+  Pool.withResource pool migrateDB
+  res <- f h
+  Pool.destroyAllResources pool
+  return res
