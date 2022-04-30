@@ -1,4 +1,4 @@
-module Bot.Database where
+module Bot.Database.Database where
 
 import           Database.Beam
 import           Database.Beam.Postgres
