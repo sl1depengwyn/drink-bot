@@ -1,6 +1,6 @@
 module Bot.Bot where
 
-import qualified Bot.Database as Database
+import qualified Bot.Database.Database as Database
 import qualified Bot.Logger            as Logger
 import qualified Data.Aeson.Extended   as A
 import qualified Data.ByteString       as B
@@ -32,9 +32,6 @@ data Config =
     , cToken             :: T.Text
     , cGroupId           :: Maybe T.Text
     , cHelpMessage       :: T.Text
-    , cRepeatMessage     :: T.Text
-    , cFailMessage       :: T.Text
-    , cNumberOfResponses :: Int
     }
   deriving (Show, G.Generic)
 
@@ -60,8 +57,3 @@ sendHelpMessage :: TextBot a => Handle -> ReceiverId -> StateT a IO ()
 sendHelpMessage botH = sendTextMessage botH helpText
   where
     helpText = (cHelpMessage . hConfig) botH
-
-sendFailMessage :: TextBot a => Handle -> ReceiverId -> StateT a IO ()
-sendFailMessage botH = sendTextMessage botH failText
-  where
-    failText = (cFailMessage . hConfig) botH

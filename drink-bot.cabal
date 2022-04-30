@@ -26,11 +26,11 @@ source-repository head
 library
   exposed-modules:
       Bot.Bot
-      Bot.Database
+      Bot.Database.Database
+      Bot.Database.Migration
       Bot.Logger
       Bot.Main
       Bot.Tg
-      Bot.Vk
       Data.Aeson.Extended
       Data.Time.Extended
   other-modules:
@@ -40,6 +40,17 @@ library
   default-extensions:
       OverloadedStrings
       DeriveGeneric
+      DeriveGeneric
+      GADTs
+      OverloadedStrings
+      FlexibleContexts
+      FlexibleInstances
+      TypeFamilies
+      TypeApplications
+      DeriveAnyClass
+      StandaloneDeriving
+      TypeSynonymInstances
+      MultiParamTypeClasses
   build-depends:
       aeson
     , base >=4.7 && <5
@@ -68,6 +79,17 @@ executable drink-bot-exe
   default-extensions:
       OverloadedStrings
       DeriveGeneric
+      DeriveGeneric
+      GADTs
+      OverloadedStrings
+      FlexibleContexts
+      FlexibleInstances
+      TypeFamilies
+      TypeApplications
+      DeriveAnyClass
+      StandaloneDeriving
+      TypeSynonymInstances
+      MultiParamTypeClasses
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
@@ -99,6 +121,17 @@ test-suite drink-bot-test
   default-extensions:
       OverloadedStrings
       DeriveGeneric
+      DeriveGeneric
+      GADTs
+      OverloadedStrings
+      FlexibleContexts
+      FlexibleInstances
+      TypeFamilies
+      TypeApplications
+      DeriveAnyClass
+      StandaloneDeriving
+      TypeSynonymInstances
+      MultiParamTypeClasses
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson

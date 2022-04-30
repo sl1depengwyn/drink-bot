@@ -40,6 +40,17 @@ dependencies:
 default-extensions:
 - OverloadedStrings
 - DeriveGeneric
+- DeriveGeneric
+- GADTs
+- OverloadedStrings
+- FlexibleContexts 
+- FlexibleInstances 
+- TypeFamilies 
+- TypeApplications 
+- DeriveAnyClass
+- StandaloneDeriving 
+- TypeSynonymInstances 
+- MultiParamTypeClasses
 
 
 library:
