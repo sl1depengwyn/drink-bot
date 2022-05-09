@@ -1,4 +1,4 @@
-module Bot.Database.Database where
+module Database.Database where
 
 import qualified Data.Aeson.Extended as A
 import qualified Data.Text as T
@@ -8,7 +8,7 @@ import Database.Beam
 import Database.Beam.Postgres
 import qualified Database.PostgreSQL.Simple as PGS
 import qualified Data.Pool                  as Pool
-import Bot.Database.Migration
+import Database.Migration (migrateDB)
 
 newtype Config = Config
   { cConnectionString :: T.Text
@@ -32,3 +32,5 @@ withHandle conf f = do
   res <- f h
   Pool.destroyAllResources pool
   return res
+
+

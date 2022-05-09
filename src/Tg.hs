@@ -1,29 +1,31 @@
-module Bot.Tg where
+module Tg where
 
-import qualified Bot.Bot                    as Bot
-import qualified Bot.Logger                 as Logger
-import qualified Bot.Database as Database
-import           Control.Monad              (MonadPlus (mzero), replicateM,
-                                             void)
-import           Control.Monad.State
-import qualified Data.Aeson.Extended        as A
-import qualified Data.ByteString            as B
-import qualified Data.ByteString.Char8      as BC
+import qualified Bot
+import Control.Monad
+  ( MonadPlus (mzero),
+    replicateM,
+    void,
+  )
+import Control.Monad.State
+import qualified Data.Aeson.Extended as A
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy.Char8 as LC
-import           Data.Map                   (Map)
-import qualified Data.Map                   as Map
-import qualified Data.Text                  as T
-import qualified Data.Text.Encoding         as T
-import qualified Data.Yaml                  as Yaml
-import qualified GHC.Generics               as G
-import           Network.HTTP.Simple
+import Data.Map (Map)
+import qualified Data.Map as Map
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import qualified Data.Yaml as Yaml
+import qualified Database.Database as Database
+import qualified GHC.Generics as G
+import qualified Logger
+import Network.HTTP.Simple
 
 type MapUserToRepeat = Map Int Int
 
-newtype Tg =
-  Tg
-    { sOffset :: Maybe Int
-    }
+newtype Tg = Tg
+  { sOffset :: Maybe Int
+  }
 
 run :: Bot.Handle -> IO ()
 run botH = evalStateT (longPolling botH) (Tg {sOffset = Nothing})
@@ -42,19 +44,17 @@ longPolling botH =
         mapM_ (processUpdate botH) updates
       (Left err) -> liftIO $ Logger.error logH err
 
-newtype User =
-  User
-    { uId :: Int
-    }
+newtype User = User
+  { uId :: Int
+  }
   deriving (Show, G.Generic)
 
 instance A.FromJSON User where
   parseJSON = A.genericParseJSON A.customOptions
 
-newtype Sticker =
-  Sticker
-    { sFileId :: T.Text
-    }
+newtype Sticker = Sticker
+  { sFileId :: T.Text
+  }
   deriving (Show, G.Generic)
 
 instance A.FromJSON Sticker where
@@ -62,12 +62,8 @@ instance A.FromJSON Sticker where
 
 data Message
   = TextMessage
-      { mFrom :: User
-      , mText :: T.Text
-      }
-  | StickerMessage
-      { mFrom    :: User
-      , mSticker :: Sticker
+      { mFrom :: User,
+        mText :: T.Text
       }
   | UnsupportedMessage
       { mFrom :: User
@@ -77,11 +73,10 @@ data Message
 instance A.FromJSON Message where
   parseJSON = A.genericParseJSON A.customOptions
 
-data CallbackQuery =
-  CallbackQuery
-    { cFrom :: User
-    , cData :: String 
-    }
+data CallbackQuery = CallbackQuery
+  { cFrom :: User,
+    cData :: String
+  }
   deriving (Show, G.Generic)
 
 instance A.FromJSON CallbackQuery where
@@ -89,22 +84,21 @@ instance A.FromJSON CallbackQuery where
 
 data Update
   = UpdateWithMessage
-      { uUpdateId :: Int
-      , uMessage  :: Message
+      { uUpdateId :: Int,
+        uMessage :: Message
       }
   | UpdateWithCallback
-      { uUpdateId      :: Int
-      , uCallbackQuery :: CallbackQuery
+      { uUpdateId :: Int,
+        uCallbackQuery :: CallbackQuery
       }
   deriving (Show, G.Generic)
 
 instance A.FromJSON Update where
   parseJSON = A.genericParseJSON A.customOptions
 
-newtype UpdatesResponse =
-  UpdatesResponse
-    { uResult :: [Update]
-    }
+newtype UpdatesResponse = UpdatesResponse
+  { uResult :: [Update]
+  }
   deriving (Show, G.Generic)
 
 instance A.FromJSON UpdatesResponse where
@@ -126,22 +120,20 @@ getUpdates botH offset = do
 buildRequest :: BC.ByteString -> BC.ByteString -> Query -> Request
 buildRequest host path query =
   setRequestHost host $
-  setRequestQueryString query $ setRequestPath path $ setRequestSecure True $ setRequestPort 443 defaultRequest
+    setRequestQueryString query $ setRequestPath path $ setRequestSecure True $ setRequestPort 443 defaultRequest
 
-newtype InlineKeyboard =
-  InlineKeyboard
-    { iInlineKeyboard :: [[KeyboardButton]]
-    }
+newtype InlineKeyboard = InlineKeyboard
+  { iInlineKeyboard :: [[KeyboardButton]]
+  }
   deriving (Show, G.Generic)
 
 instance A.ToJSON InlineKeyboard where
   toJSON = A.genericToJSON A.customOptions
 
-data KeyboardButton =
-  SimpleButton
-    { bText :: T.Text
-    , bCallbackData :: T.Text
-    }
+data KeyboardButton = SimpleButton
+  { bText :: T.Text,
+    bCallbackData :: T.Text
+  }
   deriving (Show, G.Generic)
 
 instance A.ToJSON KeyboardButton where
@@ -166,14 +158,6 @@ sendMessage botH usrId method query = do
   let logH = Bot.hLogger botH
   let logMessage = mconcat ["sent message by ", T.unpack method, " to ", show usrId, " with query ", show finalQuery]
   liftIO $ Logger.info logH logMessage
-  
-
-sendKeyboardMessage :: Bot.Handle -> ReceiverId -> StateT Tg IO ()
-sendKeyboardMessage botH usrId = sendMessage botH usrId "/sendMessage" query
-  where
-    repeatText = (Bot.cRepeatMessage . Bot.hConfig) botH
-    query = [("text", Just (T.encodeUtf8 repeatText)), ("reply_markup", Just (LC.toStrict (A.encode replyKeyboard)))]
-
 
 instance Bot.TextBot Tg where
   sendTextMessage botH message usrId = sendMessage botH usrId "/sendMessage" query
@@ -185,38 +169,11 @@ sendSticker botH fileId usrId = sendMessage botH usrId "/sendSticker" query
   where
     query = [("sticker", Just (T.encodeUtf8 fileId))]
 
-replyMessage :: Bot.Handle -> ReceiverId -> StateT Tg IO () -> StateT Tg IO ()
-replyMessage botH usrId sendFunction = do
-  let db = Bot.hDatabase botH
-  let defNoReps = (Bot.cNumberOfResponses . Bot.hConfig) botH
-  noR <- liftIO $ Database.getRepetitions db usrId
-  last <$> case noR of
-    [] -> replicateM defNoReps sendFunction
-    noReps:_       -> replicateM noReps sendFunction
-
 processMessage :: Bot.Handle -> Message -> StateT Tg IO ()
-processMessage botH (TextMessage us txt) = do
-  let usrId = uId us
-  case txt of
-    "/help" -> Bot.sendHelpMessage botH usrId
-    "/repeat" -> sendKeyboardMessage botH usrId
-    txt' -> replyMessage botH usrId (Bot.sendTextMessage botH txt' usrId)
-  return ()
-processMessage botH (StickerMessage us st) =
-  let usrId = uId us
-      fileId = sFileId st
-   in replyMessage botH usrId (sendSticker botH fileId usrId)
-processMessage botH (UnsupportedMessage us) =
-  let usrId = uId us
-   in Bot.sendFailMessage botH usrId
+processMessage botH (TextMessage us txt) = undefined
 
 processCallback :: Bot.Handle -> CallbackQuery -> StateT Tg IO ()
-processCallback botH (CallbackQuery (User usrId) reps) = do
-  let logH = Bot.hLogger botH
-  liftIO $ Database.upsertUser (Bot.hDatabase botH) usrId (read reps)
-  let logMsg =
-        mconcat ["update in user-repeats db: no of repeats for ", show usrId, " now is ", reps]
-  liftIO $ Logger.info logH logMsg
+processCallback botH (CallbackQuery (User usrId) reps) = undefined
 
 processUpdate :: Bot.Handle -> Update -> StateT Tg IO ()
 processUpdate botH (UpdateWithMessage _ msg) = processMessage botH msg

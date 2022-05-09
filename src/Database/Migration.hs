@@ -1,6 +1,6 @@
-module Bot.Database.Migration where
+module Database.Migration where
 
-import Bot.Database.Types
+import Database.Types
 import Data.Time (UTCTime)
 import Database.Beam
 import Database.Beam.Backend

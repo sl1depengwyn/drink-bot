@@ -1,4 +1,4 @@
-module Bot.Database.Types where
+module Database.Types where
 
 import Data.Time
 import Database.Beam

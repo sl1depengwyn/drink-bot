@@ -1,4 +1,4 @@
-module Bot.Logger where
+module Logger where
 
 import qualified Data.Aeson.Extended as A
 import           Data.Char           (toUpper)
