@@ -1,6 +1,5 @@
 module Database.Migration where
 
-import Database.Types
 import Data.Time (UTCTime)
 import Database.Beam
 import Database.Beam.Backend
@@ -8,6 +7,7 @@ import Database.Beam.Migrate
 import Database.Beam.Migrate.Simple
 import Database.Beam.Postgres
 import qualified Database.Beam.Postgres.Migrate as PG
+import Database.Types
 
 utctime :: BeamSqlBackend be => DataType be UTCTime
 utctime = DataType (timestampType Nothing False)
@@ -18,12 +18,12 @@ initialSetup =
     <$> (createTable "users" $ User {_userId = field "id" int notNull unique})
     <*> ( createTable "records" $
             Record
-              { _ruserId = field "id" int notNull,
+              { _ruserId = UserId $ field "id__id" int notNull,
                 _rmessageId = field "id" int notNull,
-                _ramount = field "amount" int notNull,
+                _ramount = field "ramount" int notNull,
                 _rtimeStamp =
                   field
-                    "drink_time"
+                    "stamp"
                     utctime
                     notNull
                     (defaultTo_ (cast_ currentTimestamp_ utctime))

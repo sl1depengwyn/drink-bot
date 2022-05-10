@@ -63,6 +63,7 @@ instance A.FromJSON Sticker where
 data Message
   = TextMessage
       { mFrom :: User,
+        mMessageId :: Int,
         mText :: T.Text
       }
   | UnsupportedMessage
@@ -170,7 +171,17 @@ sendSticker botH fileId usrId = sendMessage botH usrId "/sendSticker" query
     query = [("sticker", Just (T.encodeUtf8 fileId))]
 
 processMessage :: Bot.Handle -> Message -> StateT Tg IO ()
-processMessage botH (TextMessage us txt) = undefined
+processMessage h (TextMessage user mId txt) = addRecordToDb h (uId user) mId txt
+
+addRecordToDb :: Bot.Handle -> Int -> Int -> T.Text -> StateT Tg IO ()
+addRecordToDb h uId mId txt = do
+  case reads (T.unpack txt) of
+    [] -> pure ()
+    (amount, _) : _ -> do 
+      let dbh = Bot.hDatabase h
+      liftIO $ Database.addRecord dbh uId mId amount
+      sumOfaDay <- liftIO $ Database.getTodaysAmount dbh uId
+      Bot.sendTextMessage h (mconcat ["Today you drinked ", T.pack $ show sumOfaDay]) uId
 
 processCallback :: Bot.Handle -> CallbackQuery -> StateT Tg IO ()
 processCallback botH (CallbackQuery (User usrId) reps) = undefined

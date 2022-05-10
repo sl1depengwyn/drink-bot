@@ -2,13 +2,14 @@
 
 module Database.Types where
 
+import Data.Int
 import Data.Time
 import Database.Beam
 import Database.Beam.Postgres
 import Lens.Micro hiding (to)
 
 newtype UserT f = User
-  { _userId :: Columnar f Int
+  { _userId :: Columnar f Int32
   }
   deriving (Generic, Beamable)
 
@@ -19,7 +20,7 @@ deriving instance Show User
 deriving instance Eq User
 
 instance Table UserT where
-  data PrimaryKey UserT f = UserId (Columnar f Int)
+  data PrimaryKey UserT f = UserId (Columnar f Int32)
     deriving (Generic, Beamable)
   primaryKey = UserId . _userId
 
@@ -27,8 +28,8 @@ User (LensFor userId) = tableLenses
 
 data RecordT f = Record
   { _ruserId :: PrimaryKey UserT f,
-    _rmessageId :: Columnar f Int,
-    _ramount :: Columnar f Int,
+    _rmessageId :: Columnar f Int32,
+    _ramount :: Columnar f Int32,
     _rtimeStamp :: Columnar f UTCTime
   }
   deriving (Generic, Beamable)
@@ -43,7 +44,7 @@ instance Table RecordT where
   data PrimaryKey RecordT f
     = RecordId
         (PrimaryKey UserT f)
-        (Columnar f Int)
+        (Columnar f Int32)
     deriving (Generic, Beamable)
   primaryKey = RecordId <$> _ruserId <*> _rmessageId
 
@@ -62,5 +63,6 @@ data DrinkDb f = DrinkDb
 drinkDb :: DatabaseSettings Postgres DrinkDb
 drinkDb = defaultDbSettings
 
-DrinkDb (TableLens drinkUsers)
-        (TableLens drinkRecords) = dbLenses
+DrinkDb
+  (TableLens drinkUsers)
+  (TableLens drinkRecords) = dbLenses

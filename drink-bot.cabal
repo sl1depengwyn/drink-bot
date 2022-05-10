@@ -26,13 +26,13 @@ source-repository head
 library
   exposed-modules:
       Bot
+      Bot.Main
       Data.Aeson.Extended
       Data.Time.Extended
       Database.Database
       Database.Migration
       Database.Types
       Logger
-      Main
       Tg
   other-modules:
       Paths_drink_bot

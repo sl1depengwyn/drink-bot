@@ -1,6 +1,6 @@
 module Main where
 
-import qualified Main
+import qualified Bot.Main
 
 main :: IO ()
-main = Main.main
+main = Bot.Main.main

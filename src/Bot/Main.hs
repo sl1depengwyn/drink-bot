@@ -1,4 +1,4 @@
-module Main where
+module Bot.Main where
 
 import qualified Bot
 import qualified Data.Aeson.Extended as A
