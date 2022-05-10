@@ -61,6 +61,7 @@ library
     , bytestring
     , containers
     , http-conduit
+    , microlens
     , mtl
     , postgresql-simple
     , product-profunctors
@@ -102,6 +103,7 @@ executable drink-bot-exe
     , containers
     , drink-bot
     , http-conduit
+    , microlens
     , mtl
     , postgresql-simple
     , product-profunctors
@@ -144,6 +146,7 @@ test-suite drink-bot-test
     , containers
     , drink-bot
     , http-conduit
+    , microlens
     , mtl
     , postgresql-simple
     , product-profunctors

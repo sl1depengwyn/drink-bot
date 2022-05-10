@@ -34,3 +34,9 @@ withHandle conf f = do
   return res
 
 
+addRecord :: Handle -> Int -> Int -> Int -> m ()
+addRecord h userId messageId amount = do
+  runInsert $ insert (_dRecords drinkDb) $ insertExpressions [Record (val_ userId) (val_ messageId) (val_  amount) default_]
+
+getAmonut h user day = undefined
+
