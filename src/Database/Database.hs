@@ -5,7 +5,7 @@ import Data.Int
 import qualified Data.Pool as Pool
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Time (UTCTime, getCurrentTime)
+import Data.Time
 import Database.Beam
 import Database.Beam.Postgres
 import Database.Migration (migrateDB)
@@ -49,18 +49,18 @@ addRecord' userId messageId amount =
 addRecord :: Handle -> Int -> Int -> Int -> IO ()
 addRecord h uId mId amount = runQuery h (addRecord' (fromIntegral uId) (fromIntegral mId) (fromIntegral amount))
 
-getAmount' :: MonadBeam Postgres m => Int32 -> UTCTime -> m (Maybe (Maybe Int32))
-getAmount' uId day = runSelectReturningOne $
+getAmount' :: MonadBeam Postgres m => Int32 -> Day -> m (Maybe (Maybe Int32))
+getAmount' uId stamp = runSelectReturningOne $
   select $
     aggregate_ sum_ $
       do
         record <- all_ (drinkDb ^. drinkRecords)
         guard_ (record ^. recordUId ==. val_ uId)
-        guard_ (record ^. recordTStamp ==. val_ day)
+        guard_ ((record ^. recordTStamp) ==. val_ stamp)
         pure $ record ^. recordAmount
 
-getAmonut :: Handle -> Int -> UTCTime -> IO (Maybe (Maybe Int32))
+getAmonut :: Handle -> Int -> Day -> IO (Maybe (Maybe Int32))
 getAmonut h user day = runQuery h (getAmount' (fromIntegral user) day)
 
 getTodaysAmount :: Handle -> Int -> IO (Maybe (Maybe Int32))
-getTodaysAmount h user = getCurrentTime >>= getAmonut h user
+getTodaysAmount h user = getCurrentTime >>= getAmonut h user . utctDay

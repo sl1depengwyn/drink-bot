@@ -30,7 +30,7 @@ data RecordT f = Record
   { _ruserId :: PrimaryKey UserT f,
     _rmessageId :: Columnar f Int32,
     _ramount :: Columnar f Int32,
-    _rtimeStamp :: Columnar f UTCTime
+    _rtimeStamp :: Columnar f Day
   }
   deriving (Generic, Beamable)
 

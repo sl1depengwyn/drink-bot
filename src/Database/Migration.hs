@@ -24,9 +24,9 @@ initialSetup =
                 _rtimeStamp =
                   field
                     "stamp"
-                    utctime
+                    date
                     notNull
-                    (defaultTo_ (cast_ currentTimestamp_ utctime))
+                    (defaultTo_ (cast_ currentTimestamp_ date))
               }
         )
 
