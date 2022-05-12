@@ -13,9 +13,11 @@ import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy.Char8 as LC
 import Data.Map (Map)
 import qualified Data.Map as Map
+--import qualified Data.Yaml as Yaml
+
+import Data.Maybe (fromJust)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.Yaml as Yaml
 import qualified Database.Database as Database
 import qualified GHC.Generics as G
 import qualified Logger
@@ -88,6 +90,10 @@ data Update
       { uUpdateId :: Int,
         uMessage :: Message
       }
+  | UpdateWithEdit
+      { uUpdateId :: Int,
+        uEditedMessage :: Message
+      }
   | UpdateWithCallback
       { uUpdateId :: Int,
         uCallbackQuery :: CallbackQuery
@@ -155,10 +161,34 @@ sendMessage botH usrId method query = do
   let chatId = ("chat_id", Just senderId)
   let finalQuery = chatId : query
   let host = (Bot.hUrl . Bot.cHost . Bot.hConfig) botH
-  httpBS (buildRequest host (T.encodeUtf8 path) finalQuery)
-  let logH = Bot.hLogger botH
+  response <- httpBS (buildRequest host (T.encodeUtf8 path) finalQuery)
+  let dbh = Bot.hDatabase botH
+  let logh = Bot.hLogger botH
+
+  let respParser obj = case A.parseMaybe (\o -> (o A..: "result") >>= (A..: "message_id")) obj of
+        (Just mId) -> liftIO $ Database.updateLastMessageId dbh usrId mId
+        Nothing -> liftIO $ Logger.error logh "No message id found in response to send message"
+
+  either (liftIO . Logger.error logh) respParser (A.eitherDecodeStrict (getResponseBody response))
+
   let logMessage = mconcat ["sent message by ", T.unpack method, " to ", show usrId, " with query ", show finalQuery]
-  liftIO $ Logger.info logH logMessage
+  liftIO $ Logger.info logh logMessage
+
+editMessage :: Bot.Handle -> Int -> Int -> T.Text -> IO ()
+editMessage botH usrId mId txt = do
+  let apiKey = (Bot.cToken . Bot.hConfig) botH
+  let path = mconcat ["/bot", apiKey, "/editMessageText"]
+  let senderId = (BC.pack . show) usrId
+  let query = [("message_id", Just $ (BC.pack . show) mId), ("chat_id", Just senderId), ("text", Just $ T.encodeUtf8 txt)]
+  let host = (Bot.hUrl . Bot.cHost . Bot.hConfig) botH
+
+  let dbh = Bot.hDatabase botH
+  let logh = Bot.hLogger botH
+    
+  httpBS (buildRequest host (T.encodeUtf8 path) query)
+  let logMessage = mconcat ["edited message with id ", show mId, " to ", show txt, " with query ", show query]
+  liftIO $ Logger.info logh logMessage
+  
 
 instance Bot.TextBot Tg where
   sendTextMessage botH message usrId = sendMessage botH usrId "/sendMessage" query
@@ -176,6 +206,18 @@ processMessage h (TextMessage user mId txt) = case txt of
   _ -> addRecordToDb h usrId mId txt
   where
     usrId = uId user
+
+processEdit h (TextMessage user mId txt) = do
+  let dbh = Bot.hDatabase h
+  let usrId = uId user
+  case reads (T.unpack txt) of
+    [] -> pure ()
+    (amount, _) : _ -> do
+      Database.updateRecord dbh usrId mId amount
+      sumOfaDay <- Database.getTodaysAmount dbh usrId
+      (Just mIdToEdit) <- Database.getLastMessageId dbh usrId
+      let msgText = mconcat ["Today you drinked ", T.pack $ show sumOfaDay]
+      editMessage h usrId mIdToEdit msgText
 
 addRecordToDb :: Bot.Handle -> Int -> Int -> T.Text -> StateT Tg IO ()
 addRecordToDb h usrId mId txt = do
@@ -195,4 +237,5 @@ processCallback botH (CallbackQuery (User usrId) reps) = undefined
 
 processUpdate :: Bot.Handle -> Update -> StateT Tg IO ()
 processUpdate botH (UpdateWithMessage _ msg) = processMessage botH msg
+processUpdate botH (UpdateWithEdit _ msg) = liftIO $ processEdit botH msg
 processUpdate botH (UpdateWithCallback _ cb) = processCallback botH cb

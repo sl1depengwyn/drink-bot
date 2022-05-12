@@ -8,8 +8,9 @@ import Database.Beam
 import Database.Beam.Postgres
 import Lens.Micro hiding (to)
 
-newtype UserT f = User
-  { _userId :: Columnar f Int32
+data UserT f = User
+  { _userId :: Columnar f Int32,
+    _lastMessageId :: Columnar f (Maybe Int32)
   }
   deriving (Generic, Beamable)
 
@@ -24,7 +25,7 @@ instance Table UserT where
     deriving (Generic, Beamable)
   primaryKey = UserId . _userId
 
-User (LensFor userId) = tableLenses
+User (LensFor userId) (LensFor lastMessageId) = tableLenses
 
 data RecordT f = Record
   { _ruserId :: PrimaryKey UserT f,

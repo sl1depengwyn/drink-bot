@@ -59,7 +59,7 @@ addUser' userId =
   runInsert $
     insertOnConflict
       (drinkDb ^. drinkUsers)
-      (insertValues [User userId])
+      (insertValues [User userId Nothing])
       anyConflict
       onConflictDoNothing
 
@@ -81,3 +81,33 @@ getAmonut h user day = runQuery h (getAmount' (fromIntegral user) day)
 
 getTodaysAmount :: Handle -> Int -> IO (Maybe (Maybe Int32))
 getTodaysAmount h user = getCurrentTime >>= getAmonut h user . utctDay
+
+updateLastMessageId' :: MonadBeam Postgres m => Int32 -> Int32 -> m ()
+updateLastMessageId' userId mId = do
+  user' <- runSelectReturningOne $ lookup_ (drinkDb ^. drinkUsers) (UserId userId)
+  case user' of
+    (Just user) -> runUpdate $ save (drinkDb ^. drinkUsers) (user & lastMessageId ?~ mId)
+    Nothing -> pure () -- TODO !!write error to log!!
+
+updateLastMessageId :: Handle -> Int -> Int -> IO ()
+updateLastMessageId h userId mId = runQuery h (updateLastMessageId' (fromIntegral userId) (fromIntegral mId))
+
+getLastMessageId' :: MonadBeam Postgres m => Int32 -> m (Maybe Int)
+getLastMessageId' userId = do
+  user' <- runSelectReturningOne $ lookup_ (drinkDb ^. drinkUsers) (UserId userId)
+  pure $ fromIntegral <$> (user' >>= (^. lastMessageId))
+
+getLastMessageId :: Handle -> Int -> IO (Maybe Int)
+getLastMessageId h userId = runQuery h (getLastMessageId' (fromIntegral userId))
+
+updateRecord' :: MonadBeam Postgres m => Int32 -> Int32 -> Int32 -> m ()
+updateRecord' userId mId amount = do
+  record' <- runSelectReturningOne $ lookup_ (drinkDb ^. drinkRecords) (RecordId (UserId userId) mId)
+  case record' of
+    (Just record) -> runUpdate $ save (drinkDb ^. drinkRecords) (record & recordAmount .~ amount)
+    Nothing -> pure () -- TODO !!write error to log!!
+
+updateRecord :: Handle -> Int -> Int -> Int -> IO ()
+updateRecord h userId mId amount = runQuery h (updateRecord' userId' mId' amount')
+  where
+    [userId', mId', amount'] = map fromIntegral [userId, mId, amount]

@@ -15,7 +15,12 @@ utctime = DataType (timestampType Nothing False)
 initialSetup :: Migration Postgres (CheckedDatabaseSettings Postgres DrinkDb)
 initialSetup =
   DrinkDb
-    <$> (createTable "users" $ User {_userId = field "id" int notNull unique})
+    <$> ( createTable "users" $
+            User
+              { _userId = field "id" int notNull unique,
+                _lastMessageId = field "lastmessageid" (maybeType int)
+              }
+        )
     <*> ( createTable "records" $
             Record
               { _ruserId = UserId $ field "userid" int notNull,
