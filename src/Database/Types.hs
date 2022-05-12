@@ -60,9 +60,6 @@ data DrinkDb f = DrinkDb
   }
   deriving (Generic, Database Postgres)
 
-drinkDb :: DatabaseSettings Postgres DrinkDb
-drinkDb = defaultDbSettings
-
 DrinkDb
   (TableLens drinkUsers)
   (TableLens drinkRecords) = dbLenses

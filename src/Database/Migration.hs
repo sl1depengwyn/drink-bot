@@ -18,12 +18,12 @@ initialSetup =
     <$> (createTable "users" $ User {_userId = field "id" int notNull unique})
     <*> ( createTable "records" $
             Record
-              { _ruserId = UserId $ field "id__id" int notNull,
+              { _ruserId = UserId $ field "userid" int notNull,
                 _rmessageId = field "id" int notNull,
-                _ramount = field "ramount" int notNull,
+                _ramount = field "amount" int notNull,
                 _rtimeStamp =
                   field
-                    "stamp"
+                    "date"
                     date
                     notNull
                     (defaultTo_ (cast_ currentTimestamp_ date))
