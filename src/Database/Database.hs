@@ -7,6 +7,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Time
 import Database.Beam
+import Database.Beam.Backend.SQL.BeamExtensions (BeamHasInsertOnConflict (anyConflict, insertOnConflict, onConflictDoNothing))
 import Database.Beam.Postgres
 import Database.Migration (migrateDB)
 import qualified Database.PostgreSQL.Simple as PGS
@@ -48,6 +49,15 @@ addRecord' userId messageId amount =
 
 addRecord :: Handle -> Int -> Int -> Int -> IO ()
 addRecord h uId mId amount = runQuery h (addRecord' (fromIntegral uId) (fromIntegral mId) (fromIntegral amount))
+
+addUser' :: MonadBeam Postgres m => Int32 -> m ()
+addUser' userId = runInsert $ 
+  insertOnConflict (drinkDb ^. drinkUsers) (insertValues [User userId]) 
+    anyConflict 
+    onConflictDoNothing
+
+addUser :: Integral a => Handle -> a -> IO ()
+addUser h userId = runQuery h (addUser' (fromIntegral userId))
 
 getAmount' :: MonadBeam Postgres m => Int32 -> Day -> m (Maybe (Maybe Int32))
 getAmount' uId stamp = runSelectReturningOne $
