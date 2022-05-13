@@ -27,8 +27,9 @@ instance A.FromJSON Host where
 data Config = Config
   { cHost :: Host,
     cToken :: T.Text,
-    cGroupId :: Maybe T.Text,
-    cHelpMessage :: T.Text
+    cStartMessage :: T.Text,
+    cHelpMessage :: T.Text,
+    cFailMessage :: T.Text
   }
   deriving (Show, G.Generic)
 
@@ -44,12 +45,3 @@ data Handle = Handle
 withHandle :: Config -> Database.Handle -> Logger.Handle -> (Handle -> IO ()) -> IO ()
 withHandle conf dbHandle lHandle f = f $ Handle {hConfig = conf, hDatabase = dbHandle, hLogger = lHandle}
 
-type ReceiverId = Int
-
-class TextBot a where
-  sendTextMessage :: Handle -> T.Text -> ReceiverId -> StateT a IO ()
-
-sendHelpMessage :: TextBot a => Handle -> ReceiverId -> StateT a IO ()
-sendHelpMessage botH = sendTextMessage botH helpText
-  where
-    helpText = (cHelpMessage . hConfig) botH

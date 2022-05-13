@@ -6,8 +6,8 @@ import Database.Beam.Backend
 import Database.Beam.Migrate
 import Database.Beam.Migrate.Simple
 import Database.Beam.Postgres
-import qualified Database.Beam.Postgres.Migrate as PG
 import Database.Types
+
 
 utctime :: BeamSqlBackend be => DataType be UTCTime
 utctime = DataType (timestampType Nothing False)
@@ -45,10 +45,3 @@ allowDestructive =
     { runIrreversibleHook = pure True
     }
 
-migrateDB :: Connection -> IO (Maybe (CheckedDatabaseSettings Postgres DrinkDb))
-migrateDB conn =
-  runBeamPostgresDebug putStrLn conn $
-    bringUpToDateWithHooks
-      allowDestructive
-      PG.migrationBackend
-      initialSetupStep

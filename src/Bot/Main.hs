@@ -38,4 +38,12 @@ run path = do
   let toRun =
         case Bot.cHost bot of
           Bot.Tg _ -> Tg.run
-  Logger.withHandle logger (\hLogger -> Database.withHandle db (\hDb -> Bot.withHandle bot hDb hLogger toRun))
+  Logger.withHandle
+    logger
+    ( \hLogger ->
+        Database.withHandle
+          db
+          hLogger
+          ( \hDb -> Bot.withHandle bot hDb hLogger toRun
+          )
+    )

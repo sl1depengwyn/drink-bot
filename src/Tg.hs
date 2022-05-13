@@ -23,28 +23,27 @@ import qualified GHC.Generics as G
 import qualified Logger
 import Network.HTTP.Simple
 
-type MapUserToRepeat = Map Int Int
-
 newtype Tg = Tg
   { sOffset :: Maybe Int
   }
 
 run :: Bot.Handle -> IO ()
-run botH = evalStateT (longPolling botH) (Tg {sOffset = Nothing})
+run h = evalStateT (longPolling h) (Tg {sOffset = Nothing})
 
 longPolling :: Bot.Handle -> StateT Tg IO ()
-longPolling botH =
+longPolling h =
   forever $ do
     st <- get
-    let apiKey = (Bot.cToken . Bot.hConfig) botH
     let offset = sOffset st
-    let logH = Bot.hLogger botH
-    eitherUpdates <- liftIO $ getUpdates botH offset
+    let logh = Bot.hLogger h
+    eitherUpdates <- liftIO $ getUpdates h offset
     case eitherUpdates of
       (Right updates) -> do
         unless (null updates) (put st {sOffset = Just (uUpdateId (last updates) + 1)})
-        mapM_ (processUpdate botH) updates
-      (Left err) -> liftIO $ Logger.error logH err
+        mapM_ (processUpdate h) updates
+      (Left err) -> do
+        liftIO $ Logger.error logh err
+        put st {sOffset = (+ 1) <$> offset}
 
 newtype User = User
   { uId :: Int
@@ -111,23 +110,26 @@ newtype UpdatesResponse = UpdatesResponse
 instance A.FromJSON UpdatesResponse where
   parseJSON = A.genericParseJSON A.customOptions
 
-getUpdates :: Bot.Handle -> Maybe Int -> IO (Either String [Update])
-getUpdates botH offset = do
-  let host = (Bot.hUrl . Bot.cHost . Bot.hConfig) botH
-  let apiKey = (Bot.cToken . Bot.hConfig) botH
-  let path = mconcat ["/bot", apiKey, "/getUpdates"]
-  let query = [("timeout", Just "25"), ("offset", BC.pack . show <$> offset)]
-  Logger.debug (Bot.hLogger botH) (T.unpack (mconcat [T.decodeUtf8 host, path]))
-  response <- httpBS $ buildRequest host (T.encodeUtf8 path) query
-  let responseBody = getResponseBody response
-  Logger.debug (Bot.hLogger botH) ((T.unpack . T.decodeUtf8) responseBody)
-  let updates = A.eitherDecodeStrict responseBody
-  pure $ uResult <$> updates
-
 buildRequest :: BC.ByteString -> BC.ByteString -> Query -> Request
 buildRequest host path query =
   setRequestHost host $
     setRequestQueryString query $ setRequestPath path $ setRequestSecure True $ setRequestPort 443 defaultRequest
+
+sendRequest :: MonadIO m => Bot.Handle -> T.Text -> Query -> m (Response BC.ByteString)
+sendRequest h method query = do
+  let host = (Bot.hUrl . Bot.cHost . Bot.hConfig) h
+  let apiKey = (Bot.cToken . Bot.hConfig) h
+  let path = mconcat ["/bot", apiKey, method]
+  let logh = Bot.hLogger h
+  httpBS $ buildRequest host (T.encodeUtf8 path) query
+
+getUpdates :: MonadIO m => Bot.Handle -> Maybe Int -> m (Either String [Update])
+getUpdates h offset = do
+  let query = [("timeout", Just "25"), ("offset", BC.pack . show <$> offset)]
+  response <- sendRequest h "/getUpdates" query
+  let responseBody = getResponseBody response
+  let updates = A.eitherDecodeStrict responseBody
+  pure $ uResult <$> updates
 
 newtype InlineKeyboard = InlineKeyboard
   { iInlineKeyboard :: [[KeyboardButton]]
@@ -146,91 +148,73 @@ data KeyboardButton = SimpleButton
 instance A.ToJSON KeyboardButton where
   toJSON = A.genericToJSON A.customOptions
 
-replyKeyboard :: InlineKeyboard
-replyKeyboard =
-  InlineKeyboard
-    [[SimpleButton "1" "1", SimpleButton "2" "2"], [SimpleButton "3" "3", SimpleButton "4" "4", SimpleButton "5" "5"]]
-
-type ReceiverId = Int
-
-sendMessage :: Bot.Handle -> ReceiverId -> T.Text -> Query -> StateT Tg IO ()
-sendMessage botH usrId method query = do
-  let apiKey = (Bot.cToken . Bot.hConfig) botH
-  let path = mconcat ["/bot", apiKey, method]
-  let senderId = (BC.pack . show) usrId
-  let chatId = ("chat_id", Just senderId)
+sendMessage :: MonadIO m => Bot.Handle -> Int -> T.Text -> Query -> m ()
+sendMessage h usrId method query = do
+  let chatId = ("chat_id", Just $ (BC.pack . show) usrId)
   let finalQuery = chatId : query
-  let host = (Bot.hUrl . Bot.cHost . Bot.hConfig) botH
-  response <- httpBS (buildRequest host (T.encodeUtf8 path) finalQuery)
-  let dbh = Bot.hDatabase botH
-  let logh = Bot.hLogger botH
-
+  response <- sendRequest h method finalQuery
+  let dbh = Bot.hDatabase h
+  let logh = Bot.hLogger h
   let respParser obj = case A.parseMaybe (\o -> (o A..: "result") >>= (A..: "message_id")) obj of
         (Just mId) -> liftIO $ Database.updateLastMessageId dbh usrId mId
         Nothing -> liftIO $ Logger.error logh "No message id found in response to send message"
-
   either (liftIO . Logger.error logh) respParser (A.eitherDecodeStrict (getResponseBody response))
-
   let logMessage = mconcat ["sent message by ", T.unpack method, " to ", show usrId, " with query ", show finalQuery]
   liftIO $ Logger.info logh logMessage
 
-editMessage :: Bot.Handle -> Int -> Int -> T.Text -> IO ()
-editMessage botH usrId mId txt = do
-  let apiKey = (Bot.cToken . Bot.hConfig) botH
-  let path = mconcat ["/bot", apiKey, "/editMessageText"]
-  let senderId = (BC.pack . show) usrId
-  let query = [("message_id", Just $ (BC.pack . show) mId), ("chat_id", Just senderId), ("text", Just $ T.encodeUtf8 txt)]
-  let host = (Bot.hUrl . Bot.cHost . Bot.hConfig) botH
+sendTextMessage :: MonadIO m => Bot.Handle -> T.Text -> Int -> m ()
+sendTextMessage botH message usrId = sendMessage botH usrId "/sendMessage" query
+  where
+    query = [("text", Just (T.encodeUtf8 message))]
 
-  let dbh = Bot.hDatabase botH
-  let logh = Bot.hLogger botH
-    
-  httpBS (buildRequest host (T.encodeUtf8 path) query)
-  let logMessage = mconcat ["edited message with id ", show mId, " to ", show txt, " with query ", show query]
-  liftIO $ Logger.info logh logMessage
-  
-
-instance Bot.TextBot Tg where
-  sendTextMessage botH message usrId = sendMessage botH usrId "/sendMessage" query
-    where
-      query = [("text", Just (T.encodeUtf8 message))]
-
-sendSticker :: Bot.Handle -> T.Text -> ReceiverId -> StateT Tg IO ()
+sendSticker :: MonadIO m => Bot.Handle -> T.Text -> Int -> m ()
 sendSticker botH fileId usrId = sendMessage botH usrId "/sendSticker" query
   where
     query = [("sticker", Just (T.encodeUtf8 fileId))]
 
-processMessage :: Bot.Handle -> Message -> StateT Tg IO ()
-processMessage h (TextMessage user mId txt) = case txt of
-  "/start" -> addUserToDb h usrId
+editMessage :: MonadIO m => Bot.Handle -> Int -> Int -> T.Text -> m ()
+editMessage h usrId mId txt = do
+  let query =
+        [ ("message_id", Just $ (BC.pack . show) mId),
+          ("chat_id", Just $ (BC.pack . show) usrId),
+          ("text", Just $ T.encodeUtf8 txt)
+        ]
+  let dbh = Bot.hDatabase h
+  let logh = Bot.hLogger h
+  sendRequest h "/editMessageText" query
+  let logMessage = mconcat ["edited message with id ", show mId, " to ", show txt, " with query ", show query]
+  liftIO $ Logger.info logh logMessage
+
+processMessage :: MonadIO m => Bot.Handle -> Message -> m ()
+processMessage h (UnsupportedMessage user) = undefined
+processMessage h (TextMessage user mId txt) = case T.words txt of
+  "/start" : _ -> addUserToDb h usrId
+  "/help" : _ -> undefined
+  "/add" : val -> undefined
+  "/remove" : val -> undefined
   _ -> addRecordToDb h usrId mId txt
   where
     usrId = uId user
 
+processEdit :: Bot.Handle -> Message -> IO ()
+processEdit h (UnsupportedMessage user) = undefined
 processEdit h (TextMessage user mId txt) = do
   let dbh = Bot.hDatabase h
+  let logh = Bot.hLogger h
   let usrId = uId user
   case reads (T.unpack txt) of
     [] -> pure ()
     (amount, _) : _ -> do
       Database.updateRecord dbh usrId mId amount
       sumOfaDay <- Database.getTodaysAmount dbh usrId
-      (Just mIdToEdit) <- Database.getLastMessageId dbh usrId
-      let msgText = mconcat ["Today you drinked ", T.pack $ show sumOfaDay]
-      editMessage h usrId mIdToEdit msgText
-
-addRecordToDb :: Bot.Handle -> Int -> Int -> T.Text -> StateT Tg IO ()
-addRecordToDb h usrId mId txt = do
-  case reads (T.unpack txt) of
-    [] -> pure ()
-    (amount, _) : _ -> do
-      let dbh = Bot.hDatabase h
-      liftIO $ Database.addRecord dbh usrId mId amount
-      sumOfaDay <- liftIO $ Database.getTodaysAmount dbh usrId
-      Bot.sendTextMessage h (mconcat ["Today you drinked ", T.pack $ show sumOfaDay]) usrId
-
-addUserToDb :: Bot.Handle -> Int -> StateT Tg IO ()
-addUserToDb h usrId = liftIO $ Database.addUser (Bot.hDatabase h) usrId
+      mIdToEdit <- Database.getLastMessageId dbh usrId
+      case (sumOfaDay, mIdToEdit) of
+        (Just (Just s), Just mId) -> do
+          let msgText = mconcat ["Today you have drinked ", T.pack $ show s]
+          editMessage h usrId mId msgText
+        _ -> do
+          let logText = mconcat ["error in processEdit function, this is (sumOfaDay, mIdToEdit):", show (sumOfaDay, mIdToEdit)]
+          Logger.error logh logText
 
 processCallback :: Bot.Handle -> CallbackQuery -> StateT Tg IO ()
 processCallback botH (CallbackQuery (User usrId) reps) = undefined
@@ -239,3 +223,23 @@ processUpdate :: Bot.Handle -> Update -> StateT Tg IO ()
 processUpdate botH (UpdateWithMessage _ msg) = processMessage botH msg
 processUpdate botH (UpdateWithEdit _ msg) = liftIO $ processEdit botH msg
 processUpdate botH (UpdateWithCallback _ cb) = processCallback botH cb
+
+addRecordToDb :: MonadIO m => Bot.Handle -> Int -> Int -> T.Text -> m ()
+addRecordToDb h usrId mId txt = do
+  let logh = Bot.hLogger h
+  case reads (T.unpack txt) of
+    [] -> pure ()
+    (amount, _) : _ -> do
+      let dbh = Bot.hDatabase h
+      liftIO $ Database.addRecord dbh usrId mId amount
+      sumOfaDay <- liftIO $ Database.getTodaysAmount dbh usrId
+      case sumOfaDay of
+        (Just (Just s)) -> do
+          let msgText = mconcat ["Today you have drinked ", T.pack $ show s]
+          sendTextMessage h msgText usrId
+        _ -> do
+          let logText = mconcat ["error in addRecordTodb function, this is sumOfaDay: ", show sumOfaDay]
+          liftIO $ Logger.error logh logText
+
+addUserToDb :: MonadIO m => Bot.Handle -> Int -> m ()
+addUserToDb h usrId = liftIO $ Database.addUser (Bot.hDatabase h) usrId

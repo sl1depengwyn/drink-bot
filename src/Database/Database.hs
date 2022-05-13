@@ -9,11 +9,14 @@ import Data.Time
 import Database.Beam
 import Database.Beam.Backend.SQL.BeamExtensions (BeamHasInsertOnConflict (anyConflict, insertOnConflict, onConflictDoNothing))
 import Database.Beam.Migrate
+import Database.Beam.Migrate.Simple (bringUpToDateWithHooks)
 import Database.Beam.Postgres
+import qualified Database.Beam.Postgres.Migrate as PG
 import Database.Migration
 import qualified Database.PostgreSQL.Simple as PGS
 import Database.Types
 import Lens.Micro
+import qualified Logger
 
 newtype Config = Config
   { cConnectionString :: T.Text
@@ -25,24 +28,33 @@ instance A.FromJSON Config where
 
 data Handle = Handle
   { hConfig :: Config,
+    hLogger :: Logger.Handle,
     hPool :: Pool.Pool PGS.Connection
   }
 
-withHandle :: Config -> (Handle -> IO a) -> IO a
-withHandle conf f = do
+withHandle :: Config -> Logger.Handle -> (Handle -> IO a) -> IO a
+withHandle conf lh f = do
   let connString = cConnectionString conf
   pool <- Pool.createPool (PGS.connectPostgreSQL $ T.encodeUtf8 connString) PGS.close 1 10 4
-  let h = Handle conf pool
-  Pool.withResource pool migrateDB
+  let h = Handle {hConfig = conf, hLogger = lh, hPool = pool}
+  Pool.withResource pool (migrateDB lh)
   res <- f h
   Pool.destroyAllResources pool
   return res
+
+migrateDB :: Logger.Handle -> Connection -> IO (Maybe (CheckedDatabaseSettings Postgres DrinkDb))
+migrateDB h conn =
+  runBeamPostgresDebug (Logger.debug h) conn $
+    bringUpToDateWithHooks
+      allowDestructive
+      PG.migrationBackend
+      initialSetupStep
 
 drinkDb :: DatabaseSettings Postgres DrinkDb
 drinkDb = unCheckDatabase $ evaluateDatabase initialSetupStep
 
 runQuery :: Handle -> Pg b -> IO b
-runQuery h q = Pool.withResource (hPool h) $ \conn -> runBeamPostgresDebug putStrLn conn q
+runQuery h q = Pool.withResource (hPool h) $ \conn -> runBeamPostgresDebug (Logger.debug (hLogger h)) conn q
 
 addRecord' :: MonadBeam Postgres m => Int32 -> Int32 -> Int32 -> m ()
 addRecord' userId messageId amount =
