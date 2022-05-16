@@ -56,15 +56,15 @@ drinkDb = unCheckDatabase $ evaluateDatabase initialSetupStep
 runQuery :: Handle -> Pg b -> IO b
 runQuery h q = Pool.withResource (hPool h) $ \conn -> runBeamPostgresDebug (Logger.debug (hLogger h)) conn q
 
-addRecord' :: MonadBeam Postgres m => Int32 -> Int32 -> Int32 -> m ()
-addRecord' userId messageId amount =
+addRecord' :: MonadBeam Postgres m => Int32 -> Int32 -> Int32 -> UTCTime -> m ()
+addRecord' userId messageId amount t =
   runInsert $
     insert (drinkDb ^. drinkRecords) $
-      insertExpressions
-        [Record (val_ (UserId userId)) (val_ messageId) (val_ amount) default_]
+      insertValues
+        [Record (UserId userId) messageId amount t]
 
-addRecord :: Handle -> Int -> Int -> Int -> IO ()
-addRecord h uId mId amount = runQuery h (addRecord' (fromIntegral uId) (fromIntegral mId) (fromIntegral amount))
+addRecord :: Handle -> Int -> Int -> Int -> UTCTime -> IO ()
+addRecord h uId mId amount t = runQuery h (addRecord' (fromIntegral uId) (fromIntegral mId) (fromIntegral amount) t)
 
 addUser' :: MonadBeam Postgres m => Int32 -> m ()
 addUser' userId =
@@ -78,21 +78,26 @@ addUser' userId =
 addUser :: Integral a => Handle -> a -> IO ()
 addUser h userId = runQuery h (addUser' (fromIntegral userId))
 
-getAmount' :: MonadBeam Postgres m => Int32 -> Day -> m (Maybe (Maybe Int32))
-getAmount' uId stamp = runSelectReturningOne $
+getAmount' :: MonadBeam Postgres m => Int32 -> UTCTime -> m (Maybe (Maybe Int32))
+getAmount' uId t = runSelectReturningOne $
   select $
     aggregate_ sum_ $
       do
-        record <- all_ (drinkDb ^. drinkRecords)
-        guard_ (record ^. recordUId ==. val_ uId)
-        guard_ ((record ^. recordTStamp) ==. val_ stamp)
+        let (_, _, day) = toGregorian $ utctDay t
+        record <-
+          filter_
+            ( \record ->
+                (record ^. recordUId ==. val_ uId)
+                  &&. (extract_ day_ (record ^. recordTStamp) ==. val_ (fromIntegral day))
+            )
+            $ all_ (drinkDb ^. drinkRecords)
         pure $ record ^. recordAmount
 
-getAmonut :: Handle -> Int -> Day -> IO (Maybe (Maybe Int32))
-getAmonut h user day = runQuery h (getAmount' (fromIntegral user) day)
+getAmonut :: Handle -> Int -> UTCTime -> IO (Maybe (Maybe Int32))
+getAmonut h user t = runQuery h (getAmount' (fromIntegral user) t)
 
 getTodaysAmount :: Handle -> Int -> IO (Maybe (Maybe Int32))
-getTodaysAmount h user = getCurrentTime >>= getAmonut h user . utctDay
+getTodaysAmount h user = getCurrentTime >>= getAmonut h user
 
 updateLastMessageId' :: MonadBeam Postgres m => Int32 -> Int32 -> m ()
 updateLastMessageId' userId mId = do

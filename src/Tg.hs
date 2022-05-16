@@ -22,6 +22,8 @@ import qualified Database.Database as Database
 import qualified GHC.Generics as G
 import qualified Logger
 import Network.HTTP.Simple
+import Data.Time
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
 newtype Tg = Tg
   { sOffset :: Maybe Int
@@ -65,7 +67,8 @@ data Message
   = TextMessage
       { mFrom :: User,
         mMessageId :: Int,
-        mText :: T.Text
+        mText :: T.Text,
+        mDate :: Int -- stored as unix time
       }
   | UnsupportedMessage
       { mFrom :: User
@@ -187,18 +190,18 @@ editMessage h usrId mId txt = do
 
 processMessage :: MonadIO m => Bot.Handle -> Message -> m ()
 processMessage h (UnsupportedMessage user) = undefined
-processMessage h (TextMessage user mId txt) = case T.words txt of
+processMessage h msg@(TextMessage user mId txt _) = case T.words txt of
   "/start" : _ -> addUserToDb h usrId
   "/help" : _ -> undefined
   "/add" : val -> undefined
   "/remove" : val -> undefined
-  _ -> addRecordToDb h usrId mId txt
+  _ -> addRecordToDb h msg
   where
     usrId = uId user
 
 processEdit :: Bot.Handle -> Message -> IO ()
 processEdit h (UnsupportedMessage user) = undefined
-processEdit h (TextMessage user mId txt) = do
+processEdit h (TextMessage user mId txt _) = do
   let dbh = Bot.hDatabase h
   let logh = Bot.hLogger h
   let usrId = uId user
@@ -224,14 +227,18 @@ processUpdate botH (UpdateWithMessage _ msg) = processMessage botH msg
 processUpdate botH (UpdateWithEdit _ msg) = liftIO $ processEdit botH msg
 processUpdate botH (UpdateWithCallback _ cb) = processCallback botH cb
 
-addRecordToDb :: MonadIO m => Bot.Handle -> Int -> Int -> T.Text -> m ()
-addRecordToDb h usrId mId txt = do
+addRecordToDb :: MonadIO m => Bot.Handle -> Message -> m ()
+addRecordToDb h msg = do
+  let txt = mText msg
+  let usrId = uId $ mFrom msg
+  let mId = mMessageId msg
+  let t = posixSecondsToUTCTime $ realToFrac $ mDate msg
   let logh = Bot.hLogger h
   case reads (T.unpack txt) of
     [] -> pure ()
     (amount, _) : _ -> do
       let dbh = Bot.hDatabase h
-      liftIO $ Database.addRecord dbh usrId mId amount
+      liftIO $ Database.addRecord dbh usrId mId amount t
       sumOfaDay <- liftIO $ Database.getTodaysAmount dbh usrId
       case sumOfaDay of
         (Just (Just s)) -> do

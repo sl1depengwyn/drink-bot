@@ -8,9 +8,8 @@ import Database.Beam.Migrate.Simple
 import Database.Beam.Postgres
 import Database.Types
 
-
 utctime :: BeamSqlBackend be => DataType be UTCTime
-utctime = DataType (timestampType Nothing False)
+utctime = DataType (timestampType Nothing True)
 
 initialSetup :: Migration Postgres (CheckedDatabaseSettings Postgres DrinkDb)
 initialSetup =
@@ -24,14 +23,9 @@ initialSetup =
     <*> ( createTable "records" $
             Record
               { _ruserId = UserId $ field "userid" int notNull,
-                _rmessageId = field "id" int notNull,
+                _rmessageId = field "id" int notNull, 
                 _ramount = field "amount" int notNull,
-                _rtimeStamp =
-                  field
-                    "date"
-                    date
-                    notNull
-                    (defaultTo_ (cast_ currentTimestamp_ date))
+                _rtimeStamp = field "date" utctime notNull
               }
         )
 
@@ -44,4 +38,3 @@ allowDestructive =
   defaultUpToDateHooks
     { runIrreversibleHook = pure True
     }
-
