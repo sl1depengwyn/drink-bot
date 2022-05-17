@@ -18,12 +18,12 @@ import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import Data.Time
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import qualified Database.Database as Database
 import qualified GHC.Generics as G
 import qualified Logger
 import Network.HTTP.Simple
-import Data.Time
-import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
 newtype Tg = Tg
   { sOffset :: Maybe Int
@@ -113,6 +113,23 @@ newtype UpdatesResponse = UpdatesResponse
 instance A.FromJSON UpdatesResponse where
   parseJSON = A.genericParseJSON A.customOptions
 
+newtype InlineKeyboard = InlineKeyboard
+  { iInlineKeyboard :: [[KeyboardButton]]
+  }
+  deriving (Show, G.Generic)
+
+instance A.ToJSON InlineKeyboard where
+  toJSON = A.genericToJSON A.customOptions
+
+data KeyboardButton = SimpleButton
+  { bText :: T.Text,
+    bCallbackData :: T.Text
+  }
+  deriving (Show, G.Generic)
+
+instance A.ToJSON KeyboardButton where
+  toJSON = A.genericToJSON A.customOptions
+
 buildRequest :: BC.ByteString -> BC.ByteString -> Query -> Request
 buildRequest host path query =
   setRequestHost host $
@@ -133,23 +150,6 @@ getUpdates h offset = do
   let responseBody = getResponseBody response
   let updates = A.eitherDecodeStrict responseBody
   pure $ uResult <$> updates
-
-newtype InlineKeyboard = InlineKeyboard
-  { iInlineKeyboard :: [[KeyboardButton]]
-  }
-  deriving (Show, G.Generic)
-
-instance A.ToJSON InlineKeyboard where
-  toJSON = A.genericToJSON A.customOptions
-
-data KeyboardButton = SimpleButton
-  { bText :: T.Text,
-    bCallbackData :: T.Text
-  }
-  deriving (Show, G.Generic)
-
-instance A.ToJSON KeyboardButton where
-  toJSON = A.genericToJSON A.customOptions
 
 sendMessage :: MonadIO m => Bot.Handle -> Int -> T.Text -> Query -> m ()
 sendMessage h usrId method query = do

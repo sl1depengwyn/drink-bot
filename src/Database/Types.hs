@@ -25,6 +25,10 @@ instance Table UserT where
     deriving (Generic, Beamable)
   primaryKey = UserId . _userId
 
+deriving instance Show (PrimaryKey UserT Identity)
+
+deriving instance Eq (PrimaryKey UserT Identity)
+
 User (LensFor userId) (LensFor lastMessageId) = tableLenses
 
 data RecordT f = Record
@@ -37,9 +41,9 @@ data RecordT f = Record
 
 type Record = RecordT Identity
 
--- deriving instance Show Record
+deriving instance Show Record
 
--- deriving instance Eq Record
+deriving instance Eq Record
 
 instance Table RecordT where
   data PrimaryKey RecordT f
@@ -49,18 +53,52 @@ instance Table RecordT where
     deriving (Generic, Beamable)
   primaryKey = RecordId <$> _ruserId <*> _rmessageId
 
+deriving instance Show (PrimaryKey RecordT Identity)
+
+deriving instance Eq (PrimaryKey RecordT Identity)
+
 Record
   (UserId (LensFor recordUId))
   (LensFor recordMId)
   (LensFor recordAmount)
   (LensFor recordTStamp) = tableLenses
 
+data ButtonT f = Button
+  { _buserId :: PrimaryKey UserT f,
+    _bamount :: Columnar f Int32
+  }
+  deriving (Generic, Beamable)
+
+type Button = ButtonT Identity
+
+deriving instance Show Button
+
+deriving instance Eq Button
+
+instance Table ButtonT where
+  data PrimaryKey ButtonT f
+    = ButtonId
+        (PrimaryKey UserT f)
+        (Columnar f Int32)
+    deriving (Generic, Beamable)
+  primaryKey = ButtonId <$> _buserId <*> _bamount
+
+deriving instance Show (PrimaryKey ButtonT Identity)
+
+deriving instance Eq (PrimaryKey ButtonT Identity)
+
+Button
+  (UserId (LensFor buttonUId))
+  (LensFor buttonAmount) = tableLenses
+
 data DrinkDb f = DrinkDb
   { _dUsers :: f (TableEntity UserT),
-    _dRecords :: f (TableEntity RecordT)
+    _dRecords :: f (TableEntity RecordT),
+    _dButtons :: f (TableEntity ButtonT)
   }
   deriving (Generic, Database Postgres)
 
 DrinkDb
   (TableLens drinkUsers)
-  (TableLens drinkRecords) = dbLenses
+  (TableLens drinkRecords)
+  (TableLens drinkButtons) = dbLenses

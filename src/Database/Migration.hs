@@ -23,9 +23,15 @@ initialSetup =
     <*> ( createTable "records" $
             Record
               { _ruserId = UserId $ field "userid" int notNull,
-                _rmessageId = field "id" int notNull, 
+                _rmessageId = field "id" int notNull,
                 _ramount = field "amount" int notNull,
                 _rtimeStamp = field "date" utctime notNull
+              }
+        )
+    <*> ( createTable "buttons" $
+            Button
+              { _buserId = UserId $ field "userid" int notNull,
+                _bamount = field "amount" int notNull
               }
         )
 
