@@ -23,6 +23,7 @@ import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import qualified Database.Database as Database
 import qualified GHC.Generics as G
 import qualified Logger
+import Network.HTTP.Client.Conduit (responseTimeoutMicro)
 import Network.HTTP.Simple
 
 newtype Tg = Tg
@@ -134,7 +135,11 @@ instance A.ToJSON KeyboardButton where
 buildRequest :: BC.ByteString -> BC.ByteString -> Query -> Request
 buildRequest host path query =
   setRequestHost host $
-    setRequestQueryString query $ setRequestPath path $ setRequestSecure True $ setRequestPort 443 defaultRequest
+    setRequestQueryString query $
+      setRequestPath path $
+        setRequestSecure True $
+          setRequestPort 443 $
+            setRequestResponseTimeout (responseTimeoutMicro 35000000) defaultRequest -- 35 sec
 
 sendRequest :: MonadIO m => Bot.Handle -> T.Text -> Query -> m (Response BC.ByteString)
 sendRequest h method query = do
@@ -205,7 +210,8 @@ editMessage h usrId mId query' = do
   let query =
         [ ("message_id", Just $ (BC.pack . show) mId),
           ("chat_id", Just $ (BC.pack . show) usrId)
-        ] ++ query'
+        ]
+          ++ query'
   let dbh = Bot.hDatabase h
   let logh = Bot.hLogger h
   sendRequest h "/editMessageText" query
