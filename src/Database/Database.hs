@@ -127,3 +127,25 @@ updateRecord :: Handle -> Int -> Int -> Int -> IO ()
 updateRecord h userId mId amount = runQuery h (updateRecord' userId' mId' amount')
   where
     [userId', mId', amount'] = map fromIntegral [userId, mId, amount]
+
+addButton' :: MonadBeam Postgres m => Int32 -> Int32 -> m ()
+addButton' userId amount =
+  runInsert $
+    insertOnConflict
+      (drinkDb ^. drinkButtons)
+      (insertValues [Button (UserId userId) amount])
+      anyConflict
+      onConflictDoNothing
+
+addButton :: Handle -> Int -> Int -> IO ()
+addButton h userId amount = runQuery h (addButton' (fromIntegral userId) (fromIntegral amount))
+
+removeButton' :: MonadBeam Postgres m => Int32 -> Int32 -> m ()
+removeButton' userId amount =
+  runDelete $
+    delete
+      (drinkDb ^. drinkButtons)
+      (\b -> val_ (Button (UserId userId) amount) ==. b)
+
+removeButton :: Handle -> Int -> Int -> IO ()
+removeButton h userId amount = runQuery h (removeButton' (fromIntegral userId) (fromIntegral amount))
