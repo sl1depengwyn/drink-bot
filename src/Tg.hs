@@ -80,7 +80,8 @@ instance A.FromJSON Message where
 
 data CallbackQuery = CallbackQuery
   { cFrom :: User,
-    cData :: String
+    cId :: String,
+    cData :: T.Text
   }
   deriving (Show, G.Generic)
 
@@ -154,6 +155,7 @@ getUpdates h offset = do
 sendMessage :: MonadIO m => Bot.Handle -> Int -> T.Text -> Query -> m ()
 sendMessage h usrId method query = do
   let chatId = ("chat_id", Just $ (BC.pack . show) usrId)
+  kb' <- liftIO $ getKeyboard h usrId
   let finalQuery = chatId : query
   response <- sendRequest h method finalQuery
   let dbh = Bot.hDatabase h
@@ -164,6 +166,23 @@ sendMessage h usrId method query = do
   either (liftIO . Logger.error logh) respParser (A.eitherDecodeStrict (getResponseBody response))
   let logMessage = mconcat ["sent message by ", T.unpack method, " to ", show usrId, " with query ", show finalQuery]
   liftIO $ Logger.info logh logMessage
+
+sendMessageWithSumAndKb :: MonadIO m => Bot.Handle -> Int -> m ()
+sendMessageWithSumAndKb h usrId = do
+  let dbh = Bot.hDatabase h
+  let logh = Bot.hLogger h
+  sumOfaDay <- liftIO $ Database.getTodaysAmount dbh usrId
+  case sumOfaDay of
+    (Just (Just s)) -> do
+      let msgText = mconcat ["Today you have drinked ", T.pack $ show s]
+      kb' <- liftIO $ getKeyboard h usrId
+      let kb = InlineKeyboard [[SimpleButton "📊" "stats"], kb']
+      let rmarkup = ("reply_markup", Just $ A.encodeStrict kb)
+      let query = [("text", Just (T.encodeUtf8 msgText)), rmarkup]
+      sendMessage h usrId "/sendMessage" query
+    _ -> do
+      let logText = mconcat ["error in sendMessageWithSumAndKb function, this is sumOfaDay: ", show sumOfaDay]
+      liftIO $ Logger.error logh logText
 
 sendTextMessage :: MonadIO m => Bot.Handle -> T.Text -> Int -> m ()
 sendTextMessage botH message usrId = sendMessage botH usrId "/sendMessage" query
@@ -181,29 +200,46 @@ sendStartMsg h = sendTextMessage h (Bot.cStartMessage . Bot.hConfig $ h)
 sendHelpMsg :: MonadIO m => Bot.Handle -> Int -> m ()
 sendHelpMsg h = sendTextMessage h (Bot.cHelpMessage . Bot.hConfig $ h)
 
-editMessage :: MonadIO m => Bot.Handle -> Int -> Int -> T.Text -> m ()
-editMessage h usrId mId txt = do
+editMessage :: MonadIO m => Bot.Handle -> Int -> Int -> Query -> m ()
+editMessage h usrId mId query' = do
   let query =
         [ ("message_id", Just $ (BC.pack . show) mId),
-          ("chat_id", Just $ (BC.pack . show) usrId),
-          ("text", Just $ T.encodeUtf8 txt)
-        ]
+          ("chat_id", Just $ (BC.pack . show) usrId)
+        ] ++ query'
   let dbh = Bot.hDatabase h
   let logh = Bot.hLogger h
   sendRequest h "/editMessageText" query
-  let logMessage = mconcat ["edited message with id ", show mId, " to ", show txt, " with query ", show query]
+  let logMessage = mconcat ["edited message with id ", show mId, " with query ", show query]
   liftIO $ Logger.info logh logMessage
+
+editLastMessage :: Bot.Handle -> Int -> IO ()
+editLastMessage h usrId = do
+  let dbh = Bot.hDatabase h
+  let logh = Bot.hLogger h
+  sumOfaDay <- Database.getTodaysAmount dbh usrId
+  mIdToEdit <- Database.getLastMessageId dbh usrId
+  case (sumOfaDay, mIdToEdit) of
+    (Just (Just s), Just mId) -> do
+      kb' <- liftIO $ getKeyboard h usrId
+      let kb = InlineKeyboard [[SimpleButton "📊" "stats"], kb']
+      let rmarkup = ("reply_markup", Just $ A.encodeStrict kb)
+      let msgText = mconcat ["Today you have drinked ", T.pack $ show s]
+      editMessage h usrId mId [("text", Just $ T.encodeUtf8 msgText), rmarkup]
+    _ -> do
+      let logText = mconcat ["error in editLastMessage function, this is (sumOfaDay, mIdToEdit):", show (sumOfaDay, mIdToEdit)]
+      Logger.error logh logText
 
 processMessage :: MonadIO m => Bot.Handle -> Message -> m ()
 processMessage h (UnsupportedMessage user) = undefined
-processMessage h msg@(TextMessage user mId txt _) = case T.words txt of
-  "/start" : _ -> sendStartMsg >> addUserToDb h usrId
-  "/help" : _ -> sendHelpMsg
-  "/add" : val -> undefined
-  "/remove" : val -> undefined
-  _ -> addRecordToDb h msg
+processMessage h (TextMessage user mId txt t') = case T.words txt of
+  "/start" : _ -> sendStartMsg h usrId >> addUserToDb h usrId
+  "/help" : _ -> sendHelpMsg h usrId
+  "/add" : val -> liftIO $ addButton h usrId val >> sendMessageWithSumAndKb h usrId
+  "/remove" : val -> liftIO $ removeButton h usrId val >> sendMessageWithSumAndKb h usrId
+  _ -> addRecordToDb h usrId mId txt t >> sendMessageWithSumAndKb h usrId
   where
     usrId = uId user
+    t = posixSecondsToUTCTime $ realToFrac t'
 
 processEdit :: Bot.Handle -> Message -> IO ()
 processEdit h (UnsupportedMessage user) = undefined
@@ -215,44 +251,62 @@ processEdit h (TextMessage user mId txt _) = do
     [] -> pure ()
     (amount, _) : _ -> do
       Database.updateRecord dbh usrId mId amount
-      sumOfaDay <- Database.getTodaysAmount dbh usrId
-      mIdToEdit <- Database.getLastMessageId dbh usrId
-      case (sumOfaDay, mIdToEdit) of
-        (Just (Just s), Just mId) -> do
-          let msgText = mconcat ["Today you have drinked ", T.pack $ show s]
-          editMessage h usrId mId msgText
-        _ -> do
-          let logText = mconcat ["error in processEdit function, this is (sumOfaDay, mIdToEdit):", show (sumOfaDay, mIdToEdit)]
-          Logger.error logh logText
+      editLastMessage h usrId
 
-processCallback :: Bot.Handle -> CallbackQuery -> StateT Tg IO ()
-processCallback botH (CallbackQuery (User usrId) reps) = undefined
+processCallback :: MonadIO m => Bot.Handle -> CallbackQuery -> m ()
+processCallback h (CallbackQuery (User usrId) cid' amount) = do
+  t <- liftIO getCurrentTime
+  let cid = read cid'
+  addRecordToDb h usrId cid amount t
+  liftIO $ editLastMessage h usrId
 
 processUpdate :: Bot.Handle -> Update -> StateT Tg IO ()
-processUpdate botH (UpdateWithMessage _ msg) = processMessage botH msg
-processUpdate botH (UpdateWithEdit _ msg) = liftIO $ processEdit botH msg
-processUpdate botH (UpdateWithCallback _ cb) = processCallback botH cb
+processUpdate h (UpdateWithMessage _ msg) = processMessage h msg
+processUpdate h (UpdateWithEdit _ msg) = liftIO $ processEdit h msg
+processUpdate h (UpdateWithCallback _ cb) = processCallback h cb
 
-addRecordToDb :: MonadIO m => Bot.Handle -> Message -> m ()
-addRecordToDb h msg = do
-  let txt = mText msg
-  let usrId = uId $ mFrom msg
-  let mId = mMessageId msg
-  let t = posixSecondsToUTCTime $ realToFrac $ mDate msg
+-- addRecordToDb :: MonadIO m => Bot.Handle -> Message -> m ()
+addRecordToDb :: MonadIO f => Bot.Handle -> Int -> Int -> T.Text -> UTCTime -> f ()
+addRecordToDb h usrId mId txt t = do
   let logh = Bot.hLogger h
   case reads (T.unpack txt) of
     [] -> pure ()
     (amount, _) : _ -> do
       let dbh = Bot.hDatabase h
       liftIO $ Database.addRecord dbh usrId mId amount t
-      sumOfaDay <- liftIO $ Database.getTodaysAmount dbh usrId
-      case sumOfaDay of
-        (Just (Just s)) -> do
-          let msgText = mconcat ["Today you have drinked ", T.pack $ show s]
-          sendTextMessage h msgText usrId
-        _ -> do
-          let logText = mconcat ["error in addRecordTodb function, this is sumOfaDay: ", show sumOfaDay]
-          liftIO $ Logger.error logh logText
 
 addUserToDb :: MonadIO m => Bot.Handle -> Int -> m ()
-addUserToDb h usrId = liftIO $ Database.addUser (Bot.hDatabase h) usrId
+addUserToDb h usrId = do
+  let initkb = Bot.cInitKeyboard . Bot.hConfig $ h
+  let dbh = Bot.hDatabase h
+  liftIO $ Database.addUser dbh usrId
+  liftIO $ mapM_ (Database.addButton dbh usrId) initkb
+
+addButton :: Bot.Handle -> Int -> [T.Text] -> IO ()
+addButton h usrId [] = Logger.error (Bot.hLogger h) "no parameter to /add command"
+addButton h usrId (amount' : _) = do
+  case reads (T.unpack amount') of
+    [] -> Logger.error (Bot.hLogger h) $ "bad parameter to /add command " ++ T.unpack amount'
+    (amount, _) : _ -> do
+      let dbh = Bot.hDatabase h
+      let logh = Bot.hLogger h
+      let logText = mconcat ["added button ", show amount, " for user ", show usrId]
+      Logger.info logh logText
+      Database.addButton dbh usrId amount
+
+removeButton :: Bot.Handle -> Int -> [T.Text] -> IO ()
+removeButton h usrId [] = Logger.error (Bot.hLogger h) "no parameter to /remove command"
+removeButton h usrId (amount' : _) = do
+  case reads (T.unpack amount') of
+    [] -> Logger.error (Bot.hLogger h) $ "bad parameter to /add command" ++ T.unpack amount'
+    (amount, _) : _ -> do
+      let dbh = Bot.hDatabase h
+      let logh = Bot.hLogger h
+      let logText = mconcat ["added button ", show amount, " for user ", show usrId]
+      Logger.info logh logText
+      Database.removeButton dbh usrId amount
+
+getKeyboard :: Bot.Handle -> Int -> IO [KeyboardButton]
+getKeyboard h usrId = do
+  let dbh = Bot.hDatabase h
+  fmap (\x -> let x' = T.pack . show $ x in SimpleButton x' x') <$> Database.getButtons dbh usrId

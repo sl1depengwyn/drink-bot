@@ -149,3 +149,13 @@ removeButton' userId amount =
 
 removeButton :: Handle -> Int -> Int -> IO ()
 removeButton h userId amount = runQuery h (removeButton' (fromIntegral userId) (fromIntegral amount))
+
+getButtons' :: MonadBeam Postgres m => Int32 -> m [Int32]
+getButtons' userId =
+  runSelectReturningList $
+    select $ do
+      btn <- filter_ (\b -> b ^. buttonUId ==. val_ userId) $ all_ (drinkDb ^. drinkButtons)
+      pure $ btn ^. buttonAmount
+
+getButtons :: Handle -> Int -> IO [Int]
+getButtons h userId = map fromIntegral <$> runQuery h (getButtons' (fromIntegral userId))

@@ -11,6 +11,8 @@ bot:
   help_message: "help"
   # message is sent in response to unsupported message
   fail_message: "in case of fail"
+  # initial keyboard for all users
+  init_keyboard: [["100", "200", "300"]]
 
 logger:
   verbosity: info

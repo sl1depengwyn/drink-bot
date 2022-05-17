@@ -29,7 +29,8 @@ data Config = Config
     cToken :: T.Text,
     cStartMessage :: T.Text,
     cHelpMessage :: T.Text,
-    cFailMessage :: T.Text
+    cFailMessage :: T.Text,
+    cInitKeyboard :: [Int]
   }
   deriving (Show, G.Generic)
 

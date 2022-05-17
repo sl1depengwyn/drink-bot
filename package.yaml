@@ -37,6 +37,7 @@ dependencies:
 - beam-postgres
 - beam-migrate
 - microlens
+- aeson-extra
 
 default-extensions:
 - OverloadedStrings
