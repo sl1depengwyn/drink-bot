@@ -175,6 +175,12 @@ sendSticker botH fileId usrId = sendMessage botH usrId "/sendSticker" query
   where
     query = [("sticker", Just (T.encodeUtf8 fileId))]
 
+sendStartMsg :: MonadIO m => Bot.Handle -> Int -> m ()
+sendStartMsg h = sendTextMessage h (Bot.cStartMessage . Bot.hConfig $ h)
+
+sendHelpMsg :: MonadIO m => Bot.Handle -> Int -> m ()
+sendHelpMsg h = sendTextMessage h (Bot.cHelpMessage . Bot.hConfig $ h)
+
 editMessage :: MonadIO m => Bot.Handle -> Int -> Int -> T.Text -> m ()
 editMessage h usrId mId txt = do
   let query =
@@ -191,8 +197,8 @@ editMessage h usrId mId txt = do
 processMessage :: MonadIO m => Bot.Handle -> Message -> m ()
 processMessage h (UnsupportedMessage user) = undefined
 processMessage h msg@(TextMessage user mId txt _) = case T.words txt of
-  "/start" : _ -> addUserToDb h usrId
-  "/help" : _ -> undefined
+  "/start" : _ -> sendStartMsg >> addUserToDb h usrId
+  "/help" : _ -> sendHelpMsg
   "/add" : val -> undefined
   "/remove" : val -> undefined
   _ -> addRecordToDb h msg
