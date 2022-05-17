@@ -14,7 +14,6 @@ import Database.Beam.Postgres
 import qualified Database.Beam.Postgres.Migrate as PG
 import Database.Migration
 import qualified Database.PostgreSQL.Simple as PGS
-import Database.Types
 import Lens.Micro
 import qualified Logger
 
@@ -48,10 +47,10 @@ migrateDB h conn =
     bringUpToDateWithHooks
       allowDestructive
       PG.migrationBackend
-      initialSetupStep
+      migration
 
 drinkDb :: DatabaseSettings Postgres DrinkDb
-drinkDb = unCheckDatabase $ evaluateDatabase initialSetupStep
+drinkDb = unCheckDatabase $ evaluateDatabase migration
 
 runQuery :: Handle -> Pg b -> IO b
 runQuery h q = Pool.withResource (hPool h) $ \conn -> runBeamPostgresDebug (Logger.debug (hLogger h)) conn q

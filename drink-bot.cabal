@@ -31,6 +31,7 @@ library
       Data.Time.Extended
       Database.Database
       Database.Migration
+      Database.Schema.V001
       Database.Types
       Logger
       Tg

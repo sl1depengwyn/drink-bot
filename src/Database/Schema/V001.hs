@@ -1,10 +1,12 @@
 {-# LANGUAGE ImpredicativeTypes #-}
 
-module Database.Types where
+module Database.Schema.V001 where
 
 import Data.Int
 import Data.Time
 import Database.Beam
+import Database.Beam.Backend
+import Database.Beam.Migrate
 import Database.Beam.Postgres
 import Lens.Micro hiding (to)
 
@@ -102,3 +104,29 @@ DrinkDb
   (TableLens drinkUsers)
   (TableLens drinkRecords)
   (TableLens drinkButtons) = dbLenses
+
+utctime :: BeamSqlBackend be => DataType be UTCTime
+utctime = DataType (timestampType Nothing True)
+
+migration :: Migration Postgres (CheckedDatabaseSettings Postgres DrinkDb)
+migration =
+  DrinkDb
+    <$> ( createTable "users" $
+            User
+              { _userId = field "id" int notNull unique,
+                _lastMessageId = field "lastmessageid" (maybeType int)
+              }
+        )    <*> ( createTable "records" $
+            Record
+              { _ruserId = UserId $ field "userid" int notNull,
+                _rmessageId = field "id" int notNull,
+                _ramount = field "amount" int notNull,
+                _rtimeStamp = field "date" utctime notNull
+              }
+        )
+    <*> ( createTable "buttons" $
+            Button
+              { _buserId = UserId $ field "userid" int notNull,
+                _bamount = field "amount" int notNull
+              }
+        )
