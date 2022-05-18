@@ -176,7 +176,7 @@ sendMessageWithSumAndKb :: MonadIO m => Bot.Handle -> Int -> m ()
 sendMessageWithSumAndKb h usrId = do
   let dbh = Bot.hDatabase h
   let logh = Bot.hLogger h
-  sumOfaDay <- liftIO $ Database.getTodaysAmount dbh usrId
+  sumOfaDay <- liftIO $ Database.getSumTodaysAmount dbh usrId
   case sumOfaDay of
     (Just (Just s)) -> do
       let msgText = mconcat ["Today you have drinked ", T.pack $ show s]
@@ -205,6 +205,9 @@ sendStartMsg h = sendTextMessage h (Bot.cStartMessage . Bot.hConfig $ h)
 sendHelpMsg :: MonadIO m => Bot.Handle -> Int -> m ()
 sendHelpMsg h = sendTextMessage h (Bot.cHelpMessage . Bot.hConfig $ h)
 
+sendFailMsg :: MonadIO m => Bot.Handle -> Int -> m ()
+sendFailMsg h = sendTextMessage h (Bot.cFailMessage . Bot.hConfig $ h)
+
 editMessage :: MonadIO m => Bot.Handle -> Int -> Int -> Query -> m ()
 editMessage h usrId mId query' = do
   let query =
@@ -222,7 +225,7 @@ editLastMessage :: Bot.Handle -> Int -> IO ()
 editLastMessage h usrId = do
   let dbh = Bot.hDatabase h
   let logh = Bot.hLogger h
-  sumOfaDay <- Database.getTodaysAmount dbh usrId
+  sumOfaDay <- Database.getSumTodaysAmount dbh usrId
   mIdToEdit <- Database.getLastMessageId dbh usrId
   case (sumOfaDay, mIdToEdit) of
     (Just (Just s), Just mId) -> do
@@ -236,7 +239,11 @@ editLastMessage h usrId = do
       Logger.error logh logText
 
 processMessage :: MonadIO m => Bot.Handle -> Message -> m ()
-processMessage h (UnsupportedMessage user) = undefined
+processMessage h (UnsupportedMessage user) = do
+  let logh = Bot.hLogger h
+  let logmsg = mconcat ["got unsupported message from ", show user]
+  liftIO $ Logger.warning logh logmsg
+  sendFailMsg h (uId user)
 processMessage h (TextMessage user mId txt t') = case T.words txt of
   "/start" : _ -> sendStartMsg h usrId >> addUserToDb h usrId
   "/help" : _ -> sendHelpMsg h usrId
@@ -248,13 +255,16 @@ processMessage h (TextMessage user mId txt t') = case T.words txt of
     t = posixSecondsToUTCTime $ realToFrac t'
 
 processEdit :: Bot.Handle -> Message -> IO ()
-processEdit h (UnsupportedMessage user) = undefined
-processEdit h (TextMessage user mId txt _) = do
+processEdit h (UnsupportedMessage user) = do
+  let logh = Bot.hLogger h
+  let logmsg = mconcat ["edit to unsupported message ", show user]
+  liftIO $ Logger.warning logh logmsg
+processEdit h m@(TextMessage user mId txt _) = do
   let dbh = Bot.hDatabase h
   let logh = Bot.hLogger h
   let usrId = uId user
   case reads (T.unpack txt) of
-    [] -> pure ()
+    [] -> liftIO $ Logger.warning logh $ mconcat ["cant parse edit ", show m]
     (amount, _) : _ -> do
       Database.updateRecord dbh usrId mId amount
       editLastMessage h usrId
@@ -271,12 +281,13 @@ processUpdate h (UpdateWithMessage _ msg) = processMessage h msg
 processUpdate h (UpdateWithEdit _ msg) = liftIO $ processEdit h msg
 processUpdate h (UpdateWithCallback _ cb) = processCallback h cb
 
--- addRecordToDb :: MonadIO m => Bot.Handle -> Message -> m ()
+
 addRecordToDb :: MonadIO f => Bot.Handle -> Int -> Int -> T.Text -> UTCTime -> f ()
 addRecordToDb h usrId mId txt t = do
   let logh = Bot.hLogger h
+  let logmsg = mconcat ["cant parse new record from ", show usrId, ", msg text: ", T.unpack txt]
   case reads (T.unpack txt) of
-    [] -> pure ()
+    [] -> liftIO $ Logger.warning logh $ mconcat []
     (amount, _) : _ -> do
       let dbh = Bot.hDatabase h
       liftIO $ Database.addRecord dbh usrId mId amount t

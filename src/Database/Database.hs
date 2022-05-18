@@ -12,6 +12,7 @@ import Database.Beam.Migrate
 import Database.Beam.Migrate.Simple (bringUpToDateWithHooks)
 import Database.Beam.Postgres
 import qualified Database.Beam.Postgres.Migrate as PG
+import Database.Beam.Query.Internal
 import Database.Migration
 import qualified Database.PostgreSQL.Simple as PGS
 import Lens.Micro
@@ -77,26 +78,32 @@ addUser' userId =
 addUser :: Integral a => Handle -> a -> IO ()
 addUser h userId = runQuery h (addUser' (fromIntegral userId))
 
-getAmount' :: MonadBeam Postgres m => Int32 -> UTCTime -> m (Maybe (Maybe Int32))
-getAmount' uId t = runSelectReturningOne $
+getSumAmountOf' ::
+  MonadBeam Postgres m =>
+  p ->
+  (RecordT (QExpr Postgres (QNested QBaseScope)) -> QExpr Postgres (QNested QBaseScope) Bool) ->
+  m (Maybe (Maybe Int32))
+getSumAmountOf' uId cmp = runSelectReturningOne $
   select $
     aggregate_ sum_ $
       do
-        let (_, _, day) = toGregorian $ utctDay t
-        record <-
-          filter_
-            ( \record ->
-                (record ^. recordUId ==. val_ uId)
-                  &&. (extract_ day_ (record ^. recordTStamp) ==. val_ (fromIntegral day))
-            )
-            $ all_ (drinkDb ^. drinkRecords)
+        record <- filter_ cmp $ all_ (drinkDb ^. drinkRecords)
         pure $ record ^. recordAmount
 
-getAmonut :: Handle -> Int -> UTCTime -> IO (Maybe (Maybe Int32))
-getAmonut h user t = runQuery h (getAmount' (fromIntegral user) t)
+getSumTodaysAmount' :: MonadBeam Postgres m => Int32 -> UTCTime -> m (Maybe (Maybe Int32))
+getSumTodaysAmount' uId t =
+  let (year, month, day) = toGregorian $ utctDay t
+   in getSumAmountOf'
+        uId
+        ( \record ->
+            (record ^. recordUId ==. val_ uId)
+              &&. (extract_ year_ (record ^. recordTStamp) ==. val_ (fromIntegral year))
+              &&. (extract_ month_ (record ^. recordTStamp) ==. val_ (fromIntegral month))
+              &&. (extract_ day_ (record ^. recordTStamp) ==. val_ (fromIntegral day))
+        )
 
-getTodaysAmount :: Handle -> Int -> IO (Maybe (Maybe Int32))
-getTodaysAmount h user = getCurrentTime >>= getAmonut h user
+getSumTodaysAmount :: Handle -> Int -> IO (Maybe (Maybe Int32))
+getSumTodaysAmount h user = getCurrentTime >>= runQuery h . getSumTodaysAmount' (fromIntegral user)
 
 updateLastMessageId' :: MonadBeam Postgres m => Int32 -> Int32 -> m ()
 updateLastMessageId' userId mId = do
