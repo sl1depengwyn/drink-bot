@@ -81,7 +81,7 @@ instance A.FromJSON Message where
 
 data CallbackQuery = CallbackQuery
   { cFrom :: User,
-    cId :: String,
+    cId :: T.Text,
     cData :: T.Text
   }
   deriving (Show, G.Generic)
@@ -272,9 +272,15 @@ processEdit h m@(TextMessage user mId txt _) = do
 processCallback :: MonadIO m => Bot.Handle -> CallbackQuery -> m ()
 processCallback h (CallbackQuery (User usrId) cid' amount) = do
   t <- liftIO getCurrentTime
-  let cid = read cid'
+  let cid = read $ T.unpack cid'
   addRecordToDb h usrId cid amount t
+  answerCallback h $ T.encodeUtf8 cid'
   liftIO $ editLastMessage h usrId
+
+answerCallback :: MonadIO m => Bot.Handle -> BC.ByteString -> m (Response BC.ByteString)
+answerCallback h cid = sendRequest h "/answerCallbackQuery" query
+  where
+    query = [("callback_query_id", Just cid), ("text", Just "Keep going!")]
 
 processUpdate :: Bot.Handle -> Update -> StateT Tg IO ()
 processUpdate h (UpdateWithMessage _ msg) = processMessage h msg
