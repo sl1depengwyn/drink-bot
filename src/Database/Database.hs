@@ -80,10 +80,9 @@ addUser h userId = runQuery h (addUser' (fromIntegral userId))
 
 getSumAmountOf' ::
   MonadBeam Postgres m =>
-  p ->
   (RecordT (QExpr Postgres (QNested QBaseScope)) -> QExpr Postgres (QNested QBaseScope) Bool) ->
   m (Maybe (Maybe Int32))
-getSumAmountOf' uId cmp = runSelectReturningOne $
+getSumAmountOf' cmp = runSelectReturningOne $
   select $
     aggregate_ sum_ $
       do
@@ -94,13 +93,19 @@ getSumTodaysAmount' :: MonadBeam Postgres m => Int32 -> UTCTime -> m (Maybe (May
 getSumTodaysAmount' uId t =
   let (year, month, day) = toGregorian $ utctDay t
    in getSumAmountOf'
-        uId
         ( \record ->
             (record ^. recordUId ==. val_ uId)
               &&. (extract_ year_ (record ^. recordTStamp) ==. val_ (fromIntegral year))
               &&. (extract_ month_ (record ^. recordTStamp) ==. val_ (fromIntegral month))
               &&. (extract_ day_ (record ^. recordTStamp) ==. val_ (fromIntegral day))
         )
+
+getRecordsOf' uId cmp = undefined
+
+getTodaysRecords' = undefined
+
+getMonthRecords' = undefined
+
 
 getSumTodaysAmount :: Handle -> Int -> IO (Maybe (Maybe Int32))
 getSumTodaysAmount h user = getCurrentTime >>= runQuery h . getSumTodaysAmount' (fromIntegral user)

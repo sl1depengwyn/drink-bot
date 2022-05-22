@@ -23,7 +23,6 @@ instance A.FromJSON Config where
 main :: IO ()
 main = do
   args <- getArgs
-  progName <- getProgName
   case args of
     [configPath] -> run configPath
     _ -> run "config.yaml"

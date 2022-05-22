@@ -23,7 +23,7 @@ import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import qualified Database.Database as Database
 import qualified GHC.Generics as G
 import qualified Logger
-import Network.HTTP.Client.Conduit (responseTimeoutMicro)
+import Network.HTTP.Client.Conduit (responseTimeoutNone)
 import Network.HTTP.Simple
 
 newtype Tg = Tg
@@ -139,7 +139,7 @@ buildRequest host path query =
       setRequestPath path $
         setRequestSecure True $
           setRequestPort 443 $
-            setRequestResponseTimeout (responseTimeoutMicro 35000000) defaultRequest -- 35 sec
+            setRequestResponseTimeout responseTimeoutNone defaultRequest -- 35 sec
 
 sendRequest :: MonadIO m => Bot.Handle -> T.Text -> Query -> m (Response BC.ByteString)
 sendRequest h method query = do
