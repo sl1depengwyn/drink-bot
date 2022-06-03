@@ -11,6 +11,7 @@ import qualified Database.Database as Database
 import qualified GHC.Generics as G
 import qualified Logger
 import Network.HTTP.Simple (Query)
+import qualified Plotter.Plotter as Plotter
 
 newtype Host = Tg
   { hUrl :: BC.ByteString
@@ -30,7 +31,8 @@ data Config = Config
     cStartMessage :: T.Text,
     cHelpMessage :: T.Text,
     cFailMessage :: T.Text,
-    cInitKeyboard :: [Int]
+    cInitKeyboard :: [Int],
+    cPicture :: T.Text
   }
   deriving (Show, G.Generic)
 
@@ -40,9 +42,9 @@ instance A.FromJSON Config where
 data Handle = Handle
   { hConfig :: Config,
     hDatabase :: Database.Handle,
-    hLogger :: Logger.Handle
+    hLogger :: Logger.Handle,
+    hPlotter :: Plotter.Handle
   }
 
-withHandle :: Config -> Database.Handle -> Logger.Handle -> (Handle -> IO ()) -> IO ()
-withHandle conf dbHandle lHandle f = f $ Handle {hConfig = conf, hDatabase = dbHandle, hLogger = lHandle}
-
+withHandle :: Config -> Database.Handle -> Logger.Handle -> Plotter.Handle -> (Handle -> IO ()) -> IO ()
+withHandle conf dbHandle lHandle pHandle f = f $ Handle {hConfig = conf, hDatabase = dbHandle, hLogger = lHandle, hPlotter = pHandle}

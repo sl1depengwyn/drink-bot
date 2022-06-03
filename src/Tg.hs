@@ -18,13 +18,20 @@ import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import Data.Text.Lazy as TL (unpack)
+import Data.Text.Lazy.Encoding as TL (decodeUtf8)
 import Data.Time
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import qualified Database.Database as Database
 import qualified GHC.Generics as G
 import qualified Logger
+import Network.HTTP.Client
 import Network.HTTP.Client.Conduit (responseTimeoutNone)
-import Network.HTTP.Simple
+import Network.HTTP.Client.MultipartFormData
+import Network.HTTP.Client.TLS
+import Network.HTTP.Simple hiding (httpLbs)
+import qualified Plotter.Plotter as Plotter
+import System.Directory.Extended (removeIfExists)
 
 newtype Tg = Tg
   { sOffset :: Maybe Int
@@ -139,7 +146,7 @@ buildRequest host path query =
       setRequestPath path $
         setRequestSecure True $
           setRequestPort 443 $
-            setRequestResponseTimeout responseTimeoutNone defaultRequest -- 35 sec
+            setRequestResponseTimeout responseTimeoutNone defaultRequest
 
 sendRequest :: MonadIO m => Bot.Handle -> T.Text -> Query -> m (Response BC.ByteString)
 sendRequest h method query = do
@@ -172,22 +179,22 @@ sendMessage h usrId method query = do
   let logMessage = mconcat ["sent message by ", T.unpack method, " to ", show usrId, " with query ", show finalQuery]
   liftIO $ Logger.info logh logMessage
 
-sendMessageWithSumAndKb :: MonadIO m => Bot.Handle -> Int -> m ()
-sendMessageWithSumAndKb h usrId = do
+sendPhotoWithSumAndKb :: MonadIO m => Bot.Handle -> Int -> m ()
+sendPhotoWithSumAndKb h usrId = do
   let dbh = Bot.hDatabase h
   let logh = Bot.hLogger h
-  sumOfaDay <- liftIO $ Database.getSumTodaysAmount dbh usrId
-  case sumOfaDay of
-    (Just (Just s)) -> do
-      let msgText = mconcat ["Today you have drinked ", T.pack $ show s]
-      kb' <- liftIO $ getKeyboard h usrId
-      let kb = InlineKeyboard [[SimpleButton "📊" "stats"], kb']
-      let rmarkup = ("reply_markup", Just $ A.encodeStrict kb)
-      let query = [("text", Just (T.encodeUtf8 msgText)), rmarkup]
-      sendMessage h usrId "/sendMessage" query
-    _ -> do
-      let logText = mconcat ["error in sendMessageWithSumAndKb function, this is sumOfaDay: ", show sumOfaDay]
-      liftIO $ Logger.error logh logText
+  msgText' <- getTextWithAmount h usrId
+  case msgText' of
+    (Just msgText) -> do
+      kb <- liftIO $ getKeyboard h usrId
+      let fileId = Bot.cPicture . Bot.hConfig $ h
+      let query =
+            [ ("photo", Just (T.encodeUtf8 fileId)),
+              ("caption", Just (T.encodeUtf8 msgText)),
+              ("reply_markup", Just $ A.encodeStrict kb)
+            ]
+      sendMessage h usrId "/sendPhoto" query
+    _ -> pure () -- error handled in getTextWithAmount
 
 sendTextMessage :: MonadIO m => Bot.Handle -> T.Text -> Int -> m ()
 sendTextMessage botH message usrId = sendMessage botH usrId "/sendMessage" query
@@ -217,7 +224,8 @@ editMessage h usrId mId query' = do
           ++ query'
   let dbh = Bot.hDatabase h
   let logh = Bot.hLogger h
-  sendRequest h "/editMessageText" query
+  resp <- sendRequest h "/editMessageCaption" query
+  liftIO $ Logger.debug logh (BC.unpack $ getResponseBody resp)
   let logMessage = mconcat ["edited message with id ", show mId, " with query ", show query]
   liftIO $ Logger.info logh logMessage
 
@@ -225,17 +233,46 @@ editLastMessage :: Bot.Handle -> Int -> IO ()
 editLastMessage h usrId = do
   let dbh = Bot.hDatabase h
   let logh = Bot.hLogger h
-  sumOfaDay <- Database.getSumTodaysAmount dbh usrId
+  msgText' <- getTextWithAmount h usrId
   mIdToEdit <- Database.getLastMessageId dbh usrId
-  case (sumOfaDay, mIdToEdit) of
-    (Just (Just s), Just mId) -> do
-      kb' <- liftIO $ getKeyboard h usrId
-      let kb = InlineKeyboard [[SimpleButton "📊" "stats"], kb']
+  case (msgText', mIdToEdit) of
+    (Just msgText, Just mId) -> do
+      kb <- liftIO $ getKeyboard h usrId
       let rmarkup = ("reply_markup", Just $ A.encodeStrict kb)
-      let msgText = mconcat ["Today you have drinked ", T.pack $ show s]
-      editMessage h usrId mId [("text", Just $ T.encodeUtf8 msgText), rmarkup]
+      editMessage h usrId mId [("caption", Just $ T.encodeUtf8 msgText), rmarkup]
     _ -> do
-      let logText = mconcat ["error in editLastMessage function, this is (sumOfaDay, mIdToEdit):", show (sumOfaDay, mIdToEdit)]
+      let logText = mconcat ["error in editLastMessage function, this is (msgText', mIdToEdit):", show (msgText', mIdToEdit)]
+      Logger.error logh logText
+
+editLastMessagePhoto :: Bot.Handle -> Int -> FilePath -> IO ()
+editLastMessagePhoto h usrId pathToPhoto = do
+  let host = Bot.hUrl . Bot.cHost . Bot.hConfig $ h
+  let dbh = Bot.hDatabase h
+  let logh = Bot.hLogger h
+  let apiKey = (Bot.cToken . Bot.hConfig) h
+  let path = mconcat ["/bot", apiKey, "/editMessageMedia"]
+  kb <- liftIO $ getKeyboard h usrId
+  mIdToEdit <- Database.getLastMessageId dbh usrId
+  msgText' <- getTextWithAmount h usrId
+  case (mIdToEdit, msgText') of
+    (Just mId, Just msgText) -> do
+      kb <- getKeyboard h usrId
+      let req =
+            buildRequest
+              host
+              (T.encodeUtf8 path)
+              [ ("chat_id", Just (BC.pack . show $ usrId)),
+                ("message_id", Just (BC.pack . show $ mId)),
+                ("media", Just "{\"type\": \"photo\", \"media\": \"attach://photo\"}"),
+                ("caption", Just $ T.encodeUtf8 msgText),
+                ("reply_markup", Just $ A.encodeStrict kb)
+              ]
+      m <- newManager tlsManagerSettings
+      req' <- formDataBody [partFileSource "photo" pathToPhoto] req
+      resp <- httpLbs req' m
+      Logger.debug logh (TL.unpack . TL.decodeUtf8 $ getResponseBody resp)
+    _ -> do
+      let logText = mconcat ["error in editLastMessage function, this is mIdToEdit:", show mIdToEdit]
       Logger.error logh logText
 
 processMessage :: MonadIO m => Bot.Handle -> Message -> m ()
@@ -247,9 +284,9 @@ processMessage h (UnsupportedMessage user) = do
 processMessage h (TextMessage user mId txt t') = case T.words txt of
   "/start" : _ -> sendStartMsg h usrId >> addUserToDb h usrId
   "/help" : _ -> sendHelpMsg h usrId
-  "/add" : val -> liftIO $ addButton h usrId val >> sendMessageWithSumAndKb h usrId
-  "/remove" : val -> liftIO $ removeButton h usrId val >> sendMessageWithSumAndKb h usrId
-  _ -> addRecordToDb h usrId mId txt t >> sendMessageWithSumAndKb h usrId
+  "/add" : val -> liftIO $ addButton h usrId val >> sendPhotoWithSumAndKb h usrId
+  "/remove" : val -> liftIO $ removeButton h usrId val >> sendPhotoWithSumAndKb h usrId
+  _ -> addRecordToDb h usrId mId txt t >> sendPhotoWithSumAndKb h usrId
   where
     usrId = uId user
     t = posixSecondsToUTCTime $ realToFrac t'
@@ -270,23 +307,38 @@ processEdit h m@(TextMessage user mId txt _) = do
       editLastMessage h usrId
 
 processCallback :: MonadIO m => Bot.Handle -> CallbackQuery -> m ()
+processCallback h (CallbackQuery (User usrId) cid' "todayStats") = do
+  let dbh = Bot.hDatabase h
+  let filename = T.unpack (cid' <> ".png")
+  let ph = Bot.hPlotter h
+  stats <- liftIO $ Database.getTodaysRecordsStats dbh usrId
+  liftIO $ Plotter.plotStats ph stats filename
+  liftIO $ editLastMessagePhoto h usrId filename
+  liftIO $ removeIfExists filename
+processCallback h (CallbackQuery (User usrId) cid' "thisMonthStats") = do
+  let dbh = Bot.hDatabase h
+  let filename = T.unpack (cid' <> ".png")
+  let ph = Bot.hPlotter h
+  stats <- liftIO $ Database.getMonthRecordsStats dbh usrId
+  liftIO $ Plotter.plotStats ph stats filename
+  liftIO $ editLastMessagePhoto h usrId filename
+  liftIO $ removeIfExists filename
 processCallback h (CallbackQuery (User usrId) cid' amount) = do
   t <- liftIO getCurrentTime
   let cid = read $ T.unpack cid'
   addRecordToDb h usrId cid amount t
-  answerCallback h $ T.encodeUtf8 cid'
+  answerCallback h (T.encodeUtf8 cid') "Keep going!"
   liftIO $ editLastMessage h usrId
 
-answerCallback :: MonadIO m => Bot.Handle -> BC.ByteString -> m (Response BC.ByteString)
-answerCallback h cid = sendRequest h "/answerCallbackQuery" query
+answerCallback :: MonadIO m => Bot.Handle -> BC.ByteString -> BC.ByteString -> m (Response BC.ByteString)
+answerCallback h cid text = sendRequest h "/answerCallbackQuery" query
   where
-    query = [("callback_query_id", Just cid), ("text", Just "Keep going!")]
+    query = [("callback_query_id", Just cid), ("text", Just text)]
 
 processUpdate :: Bot.Handle -> Update -> StateT Tg IO ()
 processUpdate h (UpdateWithMessage _ msg) = processMessage h msg
 processUpdate h (UpdateWithEdit _ msg) = liftIO $ processEdit h msg
 processUpdate h (UpdateWithCallback _ cb) = processCallback h cb
-
 
 addRecordToDb :: MonadIO f => Bot.Handle -> Int -> Int -> T.Text -> UTCTime -> f ()
 addRecordToDb h usrId mId txt t = do
@@ -329,7 +381,27 @@ removeButton h usrId (amount' : _) = do
       Logger.info logh logText
       Database.removeButton dbh usrId amount
 
-getKeyboard :: Bot.Handle -> Int -> IO [KeyboardButton]
+getKeyboard :: Bot.Handle -> Int -> IO InlineKeyboard
 getKeyboard h usrId = do
   let dbh = Bot.hDatabase h
-  fmap (\x -> let x' = T.pack . show $ x in SimpleButton x' x') <$> Database.getButtons dbh usrId
+  kb <- Database.getButtons dbh usrId
+  pure $
+    InlineKeyboard
+      [ [ SimpleButton "Stats for today 📊" "todayStats",
+          SimpleButton "Stats for this month 📊" "thisMonthStats"
+        ],
+        map (\x -> let x' = T.pack . show $ x in SimpleButton x' x') kb
+      ]
+
+getTextWithAmount :: MonadIO m => Bot.Handle -> Int -> m (Maybe T.Text)
+getTextWithAmount h usrId = do
+  let dbh = Bot.hDatabase h
+  let logh = Bot.hLogger h
+  sumOfaDay <- liftIO $ Database.getSumTodaysAmount dbh usrId
+  case sumOfaDay of
+    (Just (Just s)) -> do
+      pure $ Just $ mconcat ["Today you have drinked ", T.pack $ show s]
+    _ -> do
+      let logText = mconcat ["error in getTextWithAmount function, this is sumOfaDay: ", show sumOfaDay]
+      liftIO $ Logger.error logh logText
+      pure Nothing

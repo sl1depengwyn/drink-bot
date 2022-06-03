@@ -12,7 +12,13 @@ bot:
   # message is sent in response to unsupported message
   fail_message: "in case of fail"
   # initial keyboard for all users
-  init_keyboard: [["100", "200", "300"]]
+  init_keyboard: [100, 200, 300]
+  # default picture (insert file_id that telegram provides)
+  picture: "AgACAgIAAxkBAAIN72KZyXdBY_6me6-56geipv0za1p7AAKoujEbRanQSCGfZ_cEQWUzAQADAgADcwADJAQ"
+
+plotter:
+  # path to directory where temporarily store images
+  temp_store: "."
 
 logger:
   verbosity: info

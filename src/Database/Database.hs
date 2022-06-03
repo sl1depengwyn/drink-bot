@@ -2,6 +2,7 @@ module Database.Database where
 
 import qualified Data.Aeson.Extended as A
 import Data.Int
+import Data.Map.Strict (fromListWith, toList)
 import qualified Data.Pool as Pool
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -86,7 +87,7 @@ getSumAmountOf' cmp = runSelectReturningOne $
   select $
     aggregate_ sum_ $
       do
-        record <- filter_ cmp $ all_ (drinkDb ^. drinkRecords)
+        record <- filter_ cmp $ all_ $ drinkDb ^. drinkRecords
         pure $ record ^. recordAmount
 
 getSumTodaysAmount' :: MonadBeam Postgres m => Int32 -> UTCTime -> m (Maybe (Maybe Int32))
@@ -100,15 +101,57 @@ getSumTodaysAmount' uId t =
               &&. (extract_ day_ (record ^. recordTStamp) ==. val_ (fromIntegral day))
         )
 
-getRecordsOf' uId cmp = undefined
-
-getTodaysRecords' = undefined
-
-getMonthRecords' = undefined
-
-
 getSumTodaysAmount :: Handle -> Int -> IO (Maybe (Maybe Int32))
 getSumTodaysAmount h user = getCurrentTime >>= runQuery h . getSumTodaysAmount' (fromIntegral user)
+
+getRecordsOf' ::
+  MonadBeam Postgres m =>
+  (RecordT (QExpr Postgres QBaseScope) -> QExpr Postgres QBaseScope Bool) ->
+  m [(UTCTime, Int32)]
+getRecordsOf' cmp =
+  runSelectReturningList $
+    select $ do
+      record <- filter_ cmp $ all_ $ drinkDb ^. drinkRecords
+      pure (record ^. recordTStamp, record ^. recordAmount)
+
+getTodaysRecords' :: MonadBeam Postgres m => Int32 -> UTCTime -> m [(UTCTime, Int32)]
+getTodaysRecords' uId t =
+  let (year, month, day) = toGregorian $ utctDay t
+   in getRecordsOf'
+        ( \record ->
+            (record ^. recordUId ==. val_ uId)
+              &&. (extract_ year_ (record ^. recordTStamp) ==. val_ (fromIntegral year))
+              &&. (extract_ month_ (record ^. recordTStamp) ==. val_ (fromIntegral month))
+              &&. (extract_ day_ (record ^. recordTStamp) ==. val_ (fromIntegral day))
+        )
+
+getMonthRecords' :: MonadBeam Postgres m => Int32 -> UTCTime -> m [(UTCTime, Int32)]
+getMonthRecords' uId t =
+  let (year, month, day) = toGregorian $ utctDay t
+   in getRecordsOf'
+        ( \record ->
+            (record ^. recordUId ==. val_ uId)
+              &&. (extract_ year_ (record ^. recordTStamp) ==. val_ (fromIntegral year))
+              &&. (extract_ month_ (record ^. recordTStamp) ==. val_ (fromIntegral month))
+        )
+
+getTodaysRecordsStats' :: MonadBeam Postgres m => Int32 -> UTCTime -> m [(Int, Int)]
+getTodaysRecordsStats' uId t = do
+  records <- getTodaysRecords' uId t
+  let records' = map (\(t, a) -> (todHour $ timeToTimeOfDay $ utctDayTime t, fromIntegral a)) records ++ [(h, 0) | h <- [0 .. 24]]
+  return (toList . fromListWith (+) $ records')
+
+getMonthRecordsStats' :: MonadBeam Postgres m => Int32 -> UTCTime -> m [(Int, Int)]
+getMonthRecordsStats' uId t = do
+  records <- getMonthRecords' uId t
+  let records' = map (\(t, a) -> let (_, _, d) = toGregorian $ utctDay t in (d, fromIntegral a)) records ++ [(d, 0) | d <- [1 .. 31]]
+  return (toList . fromListWith (+) $ records')
+
+getTodaysRecordsStats :: Handle -> Int -> IO [(Int, Int)]
+getTodaysRecordsStats h uId = getCurrentTime >>= runQuery h . getTodaysRecordsStats' (fromIntegral uId)
+
+getMonthRecordsStats :: Handle -> Int -> IO [(Int, Int)]
+getMonthRecordsStats h uId = getCurrentTime >>= runQuery h . getMonthRecordsStats' (fromIntegral uId)
 
 updateLastMessageId' :: MonadBeam Postgres m => Int32 -> Int32 -> m ()
 updateLastMessageId' userId mId = do

@@ -38,6 +38,14 @@ dependencies:
 - beam-migrate
 - microlens
 - aeson-extra
+- Chart
+- Chart-cairo
+- colour
+- data-default-class
+- http-client
+- http-client-tls
+- directory
+- filepath
 
 default-extensions:
 - OverloadedStrings
