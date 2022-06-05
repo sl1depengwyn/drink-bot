@@ -294,7 +294,7 @@ processMessage h (UnsupportedMessage user) = do
   sendFailMsg h (uId user)
 processMessage h (TextMessage user mId txt t') =
   case T.words txt of
-    "/start":_ -> sendStartMsg h usrId >> addUserToDb h usrId
+    "/start":_ -> addUserToDb h usrId >> sendStartMsg h usrId
     "/help":_ -> sendHelpMsg h usrId
     "/add":val -> liftIO $ addButton h usrId val >> sendPhotoWithSumAndKb h usrId
     "/remove":val -> liftIO $ removeButton h usrId val >> sendPhotoWithSumAndKb h usrId
