@@ -26,4 +26,4 @@ plotStats h records fileName = toFile def path $ do
   plot (points "" records)
   plot $ plotBars <$> bars [""] (map (\(x, y) -> (x, [y])) records)
   where
-    path = mconcat [cTempStore . hConfig $ h, [pathSeparator], fileName]
+    path = (cTempStore . hConfig) h </> fileName
