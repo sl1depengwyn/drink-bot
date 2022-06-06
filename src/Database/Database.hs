@@ -1,12 +1,14 @@
 module Database.Database where
 
 import qualified Data.Aeson.Extended as A
+import Data.Bifunctor (bimap)
 import Data.Int
 import Data.Map.Strict (fromListWith, toList)
 import qualified Data.Pool as Pool
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Time
+import Data.Time.Clock.POSIX
+import Data.Time.Extended
 import Database.Beam
 import Database.Beam.Backend.SQL.BeamExtensions (BeamHasInsertOnConflict (anyConflict, insertOnConflict, onConflictDoNothing))
 import Database.Beam.Migrate
@@ -16,6 +18,7 @@ import qualified Database.Beam.Postgres.Migrate as PG
 import Database.Beam.Query.Internal
 import Database.Migration
 import qualified Database.PostgreSQL.Simple as PGS
+import Debug.Trace
 import Lens.Micro
 import qualified Logger
 
@@ -135,22 +138,30 @@ getMonthRecords' uId t =
               &&. (extract_ month_ (record ^. recordTStamp) ==. val_ (fromIntegral month))
         )
 
-getTodaysRecordsStats' :: MonadBeam Postgres m => Int32 -> UTCTime -> m [(Int, Int)]
+getTodaysRecordsStats' :: MonadBeam Postgres m => Int32 -> UTCTime -> m [(UTCTime, Int)]
 getTodaysRecordsStats' uId t = do
   records <- getTodaysRecords' uId t
-  let records' = map (\(t, a) -> (todHour $ timeToTimeOfDay $ utctDayTime t, fromIntegral a)) records ++ [(h, 0) | h <- [0 .. 24]]
+  let ceilHour t' = t' {utctDayTime = fromIntegral $ 3600 * (ceiling ((fromRational . toRational) (utctDayTime t')) `div` 3600)}
+  let zeroDay = [(t {utctDayTime = fromRational (toRational h)}, 0) | h <- [0, 3600 .. posixDayLength]]
+  let records' = map (bimap ceilHour fromIntegral) records ++ zeroDay
   return (toList . fromListWith (+) $ records')
 
-getMonthRecordsStats' :: MonadBeam Postgres m => Int32 -> UTCTime -> m [(Int, Int)]
+getMonthRecordsStats' :: MonadBeam Postgres m => Int32 -> UTCTime -> m [(UTCTime, Int)]
 getMonthRecordsStats' uId t = do
   records <- getMonthRecords' uId t
-  let records' = map (\(t, a) -> let (_, _, d) = toGregorian $ utctDay t in (d, fromIntegral a)) records ++ [(d, 0) | d <- [1 .. 31]]
+  let (y, m, _) = toGregorian $ utctDay t
+  let zeroMonth = [(mkUTCTime (y, m, d) (0, 0, 0), 0) | d <- [1 .. 31]]
+  let records' = map (\(t, a) -> (t {utctDayTime = 0}, fromIntegral a)) records ++ zeroMonth
   return (toList . fromListWith (+) $ records')
 
-getTodaysRecordsStats :: Handle -> Int -> IO [(Int, Int)]
-getTodaysRecordsStats h uId = getCurrentTime >>= runQuery h . getTodaysRecordsStats' (fromIntegral uId)
+getTodaysRecordsStats :: Integral a => Handle -> a -> IO [(UTCTime, Int)]
+getTodaysRecordsStats h uId = do
+  t <- getCurrentTime
+  records <- runQuery h $ getTodaysRecordsStats' (fromIntegral uId) t
+  trace (show records) (pure ())
+  pure records
 
-getMonthRecordsStats :: Handle -> Int -> IO [(Int, Int)]
+getMonthRecordsStats :: Handle -> Int -> IO [(UTCTime, Int)]
 getMonthRecordsStats h uId = getCurrentTime >>= runQuery h . getMonthRecordsStats' (fromIntegral uId)
 
 updateLastMessageId' :: MonadBeam Postgres m => Int32 -> Int32 -> m ()

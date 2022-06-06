@@ -47,4 +47,5 @@ data Handle = Handle
   }
 
 withHandle :: Config -> Database.Handle -> Logger.Handle -> Plotter.Handle -> (Handle -> IO ()) -> IO ()
-withHandle conf dbHandle lHandle pHandle f = f $ Handle {hConfig = conf, hDatabase = dbHandle, hLogger = lHandle, hPlotter = pHandle}
+withHandle conf dbHandle lHandle pHandle f =
+  f $ Handle {hConfig = conf, hDatabase = dbHandle, hLogger = lHandle, hPlotter = pHandle}

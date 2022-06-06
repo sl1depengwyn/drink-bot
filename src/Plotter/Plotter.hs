@@ -20,10 +20,18 @@ newtype Handle = Handle {hConfig :: Config}
 withHandle :: Config -> (Handle -> IO ()) -> IO ()
 withHandle conf f = f $ Handle {hConfig = conf}
 
-plotStats :: Handle -> [(Int, Int)] -> FilePath -> IO ()
-plotStats h records fileName = toFile def path $ do
+plotStats :: (PlotValue x, BarsPlotValue y) => Handle -> String -> [(x, y)] -> FilePath -> IO ()
+plotStats h axisName records fileName = toFile def path $ do
+  layout_y_axis . laxis_title .= "Water amount"
+  layout_x_axis . laxis_title .= axisName
   plot (line "" [records])
   plot (points "" records)
   plot $ plotBars <$> bars [""] (map (\(x, y) -> (x, [y])) records)
   where
     path = (cTempStore . hConfig) h </> fileName
+
+plotDayStats :: (BarsPlotValue y, PlotValue x) => Handle -> [(x, y)] -> FilePath -> IO ()
+plotDayStats h = plotStats h "Time (Hour)"
+
+plotMonthStats :: (BarsPlotValue y, PlotValue x) => Handle -> [(x, y)] -> FilePath -> IO ()
+plotMonthStats h = plotStats h "Time (Day)"

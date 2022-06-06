@@ -116,7 +116,8 @@ migration =
               { _userId = field "id" int notNull unique,
                 _lastMessageId = field "lastmessageid" (maybeType int)
               }
-        )    <*> ( createTable "records" $
+        )
+    <*> ( createTable "records" $
             Record
               { _ruserId = UserId $ field "userid" int notNull,
                 _rmessageId = field "id" int notNull,
