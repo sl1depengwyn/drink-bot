@@ -18,7 +18,6 @@ import qualified Database.Beam.Postgres.Migrate as PG
 import Database.Beam.Query.Internal
 import Database.Migration
 import qualified Database.PostgreSQL.Simple as PGS
-import Debug.Trace
 import Lens.Micro
 import qualified Logger
 
@@ -157,9 +156,7 @@ getMonthRecordsStats' uId t = do
 getTodaysRecordsStats :: Integral a => Handle -> a -> IO [(UTCTime, Int)]
 getTodaysRecordsStats h uId = do
   t <- getCurrentTime
-  records <- runQuery h $ getTodaysRecordsStats' (fromIntegral uId) t
-  trace (show records) (pure ())
-  pure records
+  runQuery h $ getTodaysRecordsStats' (fromIntegral uId) t
 
 getMonthRecordsStats :: Handle -> Int -> IO [(UTCTime, Int)]
 getMonthRecordsStats h uId = getCurrentTime >>= runQuery h . getMonthRecordsStats' (fromIntegral uId)
