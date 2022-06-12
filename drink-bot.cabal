@@ -54,6 +54,7 @@ library
       StandaloneDeriving
       TypeSynonymInstances
       MultiParamTypeClasses
+      LambdaCase
   build-depends:
       Chart
     , Chart-cairo
@@ -103,6 +104,7 @@ executable drink-bot-exe
       StandaloneDeriving
       TypeSynonymInstances
       MultiParamTypeClasses
+      LambdaCase
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       Chart
@@ -155,6 +157,7 @@ test-suite drink-bot-test
       StandaloneDeriving
       TypeSynonymInstances
       MultiParamTypeClasses
+      LambdaCase
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       Chart
