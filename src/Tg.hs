@@ -233,7 +233,7 @@ editMessage h usrId mId query' = do
       dbh = Bot.hDatabase h
       logh = Bot.hLogger h
       logMessage = mconcat ["edited message with id ", show mId, " with query ", show query]
-  resp <- sendRequest h "/editMessageCaption" query
+  resp <- sendRequest h "/editMessageMedia" query
   liftIO $ Logger.debug logh (BC.unpack $ getResponseBody resp)
   liftIO $ Logger.info logh logMessage
 
@@ -247,7 +247,8 @@ editLastMessage h usrId = do
     (Just msgText, Just mId) -> do
       kb <- liftIO $ getKeyboard h usrId
       let rmarkup = ("reply_markup", Just $ A.encodeStrict kb)
-      editMessage h usrId mId [("caption", Just $ T.encodeUtf8 msgText), rmarkup]
+          photo = Bot.cPicture (Bot.hConfig h)
+      editMessage h usrId mId [("media", Just ("{\"type\": \"photo\", \"media\": \"" <> T.encodeUtf8 photo <> "\", \"caption\":\"" <> T.encodeUtf8 msgText <> "\"}")), rmarkup]
     _ -> do
       let logText =
             mconcat ["error in editLastMessage function, this is (msgText', mIdToEdit):", show (msgText', mIdToEdit)]
@@ -272,8 +273,8 @@ editLastMessagePhoto h usrId pathToPhoto = do
               (T.encodeUtf8 path)
               [ ("chat_id", Just (BC.pack . show $ usrId)),
                 ("message_id", Just (BC.pack . show $ mId)),
-                ("media", Just "{\"type\": \"photo\", \"media\": \"attach://photo\"}"),
-                ("caption", Just $ T.encodeUtf8 msgText),
+                ("media", Just ("{\"type\": \"photo\", \"media\": \"attach://photo\", \"caption\":\"" <> T.encodeUtf8 msgText <> "\"}")),
+                -- TODO: make data type instead of this ^ shit
                 ("reply_markup", Just $ A.encodeStrict kb)
               ]
       m <- newManager tlsManagerSettings
@@ -317,33 +318,34 @@ processEdit h m@(TextMessage user mId txt _) = do
       editLastMessage h usrId
 
 processCallback :: MonadIO m => Bot.Handle -> CallbackQuery -> m ()
-processCallback h (CallbackQuery (User usrId) cid' "todayStats") = do
-  let dbh = Bot.hDatabase h
-      filename = T.unpack (cid' <> ".png")
-      ph = Bot.hPlotter h
-  stats <- liftIO $ Database.getTodaysRecordsStats dbh usrId
-  liftIO $ Plotter.plotDayStats ph stats filename
-  liftIO $ editLastMessagePhoto h usrId filename
-  liftIO $ removeIfExists filename
-processCallback h (CallbackQuery (User usrId) cid' "thisMonthStats") = do
-  let dbh = Bot.hDatabase h
-      filename = T.unpack (cid' <> ".png")
-      ph = Bot.hPlotter h
-  stats <- liftIO $ Database.getMonthRecordsStats dbh usrId
-  liftIO $ Plotter.plotMonthStats ph stats filename
-  liftIO $ editLastMessagePhoto h usrId filename
-  liftIO $ removeIfExists filename
-processCallback h (CallbackQuery (User usrId) cid' amount) = do
-  t <- liftIO getCurrentTime
-  let cid = read $ T.unpack cid'
-  addRecordToDb h usrId cid amount t
-  answerCallback h (T.encodeUtf8 cid') "Keep going!"
-  liftIO $ editLastMessage h usrId
-
-answerCallback :: MonadIO m => Bot.Handle -> BC.ByteString -> BC.ByteString -> m (Response BC.ByteString)
-answerCallback h cid text = sendRequest h "/answerCallbackQuery" query
+processCallback h (CallbackQuery (User usrId) cid' cmd) = case cmd of
+  "todayStats" -> do
+    answerCallback h (T.encodeUtf8 cid')
+    stats <- liftIO $ Database.getTodaysRecordsStats dbh usrId
+    liftIO $ Plotter.plotDayStats ph stats filename
+    liftIO $ editLastMessagePhoto h usrId filename
+    liftIO $ removeIfExists filename
+  "thisMonthStats" -> do
+    answerCallback h (T.encodeUtf8 cid')
+    stats <- liftIO $ Database.getMonthRecordsStats dbh usrId
+    liftIO $ Plotter.plotMonthStats ph stats filename
+    liftIO $ editLastMessagePhoto h usrId filename
+    liftIO $ removeIfExists filename
+  amount -> do
+    t <- liftIO getCurrentTime
+    addRecordToDb h usrId cid amount t
+    answerCallback h (T.encodeUtf8 cid')
+    liftIO $ editLastMessage h usrId
   where
-    query = [("callback_query_id", Just cid), ("text", Just text)]
+    dbh = Bot.hDatabase h
+    filename = T.unpack (cid' <> ".png")
+    ph = Bot.hPlotter h
+    cid = read $ T.unpack cid'
+
+answerCallback :: MonadIO m => Bot.Handle -> BC.ByteString -> m (Response BC.ByteString)
+answerCallback h cid = sendRequest h "/answerCallbackQuery" query
+  where
+    query = [("callback_query_id", Just cid)]
 
 processUpdate :: Bot.Handle -> Update -> StateT Tg IO ()
 processUpdate h = \case
