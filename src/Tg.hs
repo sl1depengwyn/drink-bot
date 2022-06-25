@@ -2,18 +2,11 @@ module Tg (run) where
 
 import qualified Bot
 import Control.Monad
-  ( MonadPlus (mzero),
-    replicateM,
-    void,
-  )
 import Control.Monad.State
 import qualified Data.Aeson.Extended as A
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as LBS
-import Data.Map (Map)
-import qualified Data.Map as Map
---import qualified Data.Yaml as Yaml
 import Data.Maybe (fromJust)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -197,16 +190,6 @@ sendPhotoWithSumAndKb h usrId = do
       sendMessage h usrId "/sendPhoto" query
     _ -> pure () -- error handled in getTextWithAmount
 
-sendTextMessage :: MonadIO m => Bot.Handle -> T.Text -> Int -> m ()
-sendTextMessage botH message usrId = sendMessage botH usrId "/sendMessage" query
-  where
-    query = [("text", Just (T.encodeUtf8 message))]
-
-sendSticker :: MonadIO m => Bot.Handle -> T.Text -> Int -> m ()
-sendSticker botH fileId usrId = sendMessage botH usrId "/sendSticker" query
-  where
-    query = [("sticker", Just (T.encodeUtf8 fileId))]
-
 sendStartMsg :: MonadIO m => Bot.Handle -> Int -> m ()
 sendStartMsg h usrId = do
   kb <- liftIO $ getKeyboard h usrId
@@ -221,12 +204,6 @@ sendStartMsg h usrId = do
         ]
   sendMessage h usrId "/sendPhoto" query
 
-sendHelpMsg :: MonadIO m => Bot.Handle -> Int -> m ()
-sendHelpMsg h = sendTextMessage h (Bot.cHelpMessage . Bot.hConfig $ h)
-
-sendFailMsg :: MonadIO m => Bot.Handle -> Int -> m ()
-sendFailMsg h = sendTextMessage h (Bot.cFailMessage . Bot.hConfig $ h)
-
 editMessage :: MonadIO m => Bot.Handle -> Int -> Int -> Query -> m ()
 editMessage h usrId mId query' = do
   let query = [("message_id", Just $ (BC.pack . show) mId), ("chat_id", Just $ (BC.pack . show) usrId)] ++ query'
@@ -237,22 +214,36 @@ editMessage h usrId mId query' = do
   liftIO $ Logger.debug logh (BC.unpack $ getResponseBody resp)
   liftIO $ Logger.info logh logMessage
 
-editLastMessage :: Bot.Handle -> Int -> IO ()
-editLastMessage h usrId = do
+editLastMessageText :: Bot.Handle -> Int -> T.Text -> IO ()
+editLastMessageText h usrId msgText = do
   let dbh = Bot.hDatabase h
       logh = Bot.hLogger h
-  msgText' <- getTextWithAmount h usrId
   mIdToEdit <- Database.getLastMessageId dbh usrId
-  case (msgText', mIdToEdit) of
-    (Just msgText, Just mId) -> do
+  case mIdToEdit of
+    Just mId -> do
       kb <- liftIO $ getKeyboard h usrId
       let rmarkup = ("reply_markup", Just $ A.encodeStrict kb)
           photo = Bot.cPicture (Bot.hConfig h)
       editMessage h usrId mId [("media", Just ("{\"type\": \"photo\", \"media\": \"" <> T.encodeUtf8 photo <> "\", \"caption\":\"" <> T.encodeUtf8 msgText <> "\"}")), rmarkup]
     _ -> do
-      let logText =
-            mconcat ["error in editLastMessage function, this is (msgText', mIdToEdit):", show (msgText', mIdToEdit)]
+      let logText = mconcat ["error in editLastMessageText function, mIdToEdit is Nothing for ", show usrId]
       Logger.error logh logText
+
+editLastMessage :: Bot.Handle -> Int -> IO ()
+editLastMessage h usrId = do
+  let dbh = Bot.hDatabase h
+      logh = Bot.hLogger h
+  msgText' <- getTextWithAmount h usrId
+  case msgText' of
+    Just msgText -> editLastMessageText h usrId msgText
+    _ -> do
+      let logText = mconcat ["error in editLastMessage function, msgText is Nothing for ", show usrId]
+      Logger.error logh logText
+
+editLastMessageToHelp :: Bot.Handle -> Int -> IO ()
+editLastMessageToHelp h usrId = editLastMessageText h usrId helpText
+  where
+    helpText = Bot.cHelpMessage (Bot.hConfig h)
 
 editLastMessagePhoto :: Bot.Handle -> Int -> LBS.ByteString -> IO ()
 editLastMessagePhoto h usrId img = do
@@ -287,36 +278,36 @@ editLastMessagePhoto h usrId img = do
       Logger.error logh logText
 
 processMessage :: MonadIO m => Bot.Handle -> Message -> m ()
-processMessage h (UnsupportedMessage user) = do
-  let logh = Bot.hLogger h
-      logmsg = mconcat ["got unsupported message from ", show user]
-  liftIO $ Logger.warning logh logmsg
-  sendFailMsg h (uId user)
-processMessage h (TextMessage user mId txt t') =
-  case T.words txt of
-    "/start" : _ -> addUserToDb h usrId >> sendStartMsg h usrId
-    "/help" : _ -> sendHelpMsg h usrId
-    "/add" : val -> liftIO $ addButton h usrId val >> sendPhotoWithSumAndKb h usrId
-    "/remove" : val -> liftIO $ removeButton h usrId val >> sendPhotoWithSumAndKb h usrId
-    _ -> addRecordToDb h usrId mId txt t >> sendPhotoWithSumAndKb h usrId
-  where
-    usrId = uId user
-    t = posixSecondsToUTCTime $ realToFrac t'
+processMessage h = \case
+  (UnsupportedMessage user) -> do
+    let logh = Bot.hLogger h
+        logmsg = mconcat ["got unsupported message from ", show user]
+    liftIO $ Logger.warning logh logmsg
+  (TextMessage user mId txt t') ->
+    let usrId = uId user
+        t = posixSecondsToUTCTime $ realToFrac t'
+     in case T.words txt of
+          "/start" : _ -> addUserToDb h usrId >> sendStartMsg h usrId
+          "/help" : _ -> liftIO $ editLastMessageToHelp h usrId
+          "/add" : val -> liftIO $ addButton h usrId val >> sendPhotoWithSumAndKb h usrId
+          "/remove" : val -> liftIO $ removeButton h usrId val >> sendPhotoWithSumAndKb h usrId
+          _ -> addRecordToDb h usrId mId txt t >> sendPhotoWithSumAndKb h usrId
 
 processEdit :: Bot.Handle -> Message -> IO ()
-processEdit h (UnsupportedMessage user) = do
-  let logh = Bot.hLogger h
-      logmsg = mconcat ["edit to unsupported message ", show user]
-  liftIO $ Logger.warning logh logmsg
-processEdit h m@(TextMessage user mId txt _) = do
-  let dbh = Bot.hDatabase h
-      logh = Bot.hLogger h
-      usrId = uId user
-  case reads (T.unpack txt) of
-    [] -> liftIO $ Logger.warning logh $ mconcat ["cant parse edit ", show m]
-    (amount, _) : _ -> do
-      Database.updateRecord dbh usrId mId amount
-      editLastMessage h usrId
+processEdit h = \case
+  (UnsupportedMessage user) -> do
+    let logmsg = mconcat ["edit to unsupported message ", show user]
+    liftIO $ Logger.warning logh logmsg
+  m@(TextMessage user mId txt _) -> do
+    let usrId = uId user
+    case reads (T.unpack txt) of
+      [] -> liftIO $ Logger.warning logh $ mconcat ["cant parse edit ", show m]
+      (amount, _) : _ -> do
+        Database.updateRecord dbh usrId mId amount
+        editLastMessage h usrId
+  where
+    dbh = Bot.hDatabase h
+    logh = Bot.hLogger h
 
 processCallback :: MonadIO m => Bot.Handle -> CallbackQuery -> m ()
 processCallback h (CallbackQuery (User usrId) cid' cmd) = case cmd of
