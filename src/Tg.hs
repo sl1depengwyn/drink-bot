@@ -10,7 +10,7 @@ import Control.Monad.State
 import qualified Data.Aeson.Extended as A
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
-import qualified Data.ByteString.Lazy.Char8 as LC
+import qualified Data.ByteString.Lazy as LBS
 import Data.Map (Map)
 import qualified Data.Map as Map
 --import qualified Data.Yaml as Yaml
@@ -254,8 +254,8 @@ editLastMessage h usrId = do
             mconcat ["error in editLastMessage function, this is (msgText', mIdToEdit):", show (msgText', mIdToEdit)]
       Logger.error logh logText
 
-editLastMessagePhoto :: Bot.Handle -> Int -> FilePath -> IO ()
-editLastMessagePhoto h usrId pathToPhoto = do
+editLastMessagePhoto :: Bot.Handle -> Int -> LBS.ByteString -> IO ()
+editLastMessagePhoto h usrId img = do
   let host = Bot.hUrl . Bot.cHost . Bot.hConfig $ h
       dbh = Bot.hDatabase h
       logh = Bot.hLogger h
@@ -278,7 +278,8 @@ editLastMessagePhoto h usrId pathToPhoto = do
                 ("reply_markup", Just $ A.encodeStrict kb)
               ]
       m <- newManager tlsManagerSettings
-      req' <- formDataBody [partFileSource "photo" pathToPhoto] req
+      let part = partFileRequestBody "photo" "stats.png" $ RequestBodyLBS img
+      req' <- formDataBody [part] req
       resp <- httpLbs req' m
       Logger.debug logh (TL.unpack . TL.decodeUtf8 $ getResponseBody resp)
     _ -> do
@@ -322,15 +323,13 @@ processCallback h (CallbackQuery (User usrId) cid' cmd) = case cmd of
   "todayStats" -> do
     answerCallback h (T.encodeUtf8 cid')
     stats <- liftIO $ Database.getTodaysRecordsStats dbh usrId
-    liftIO $ Plotter.plotDayStats ph stats filename
-    liftIO $ editLastMessagePhoto h usrId filename
-    liftIO $ removeIfExists filename
+    image <- liftIO $ Plotter.plotDayStats ph stats
+    liftIO $ editLastMessagePhoto h usrId image
   "thisMonthStats" -> do
     answerCallback h (T.encodeUtf8 cid')
     stats <- liftIO $ Database.getMonthRecordsStats dbh usrId
-    liftIO $ Plotter.plotMonthStats ph stats filename
-    liftIO $ editLastMessagePhoto h usrId filename
-    liftIO $ removeIfExists filename
+    image <- liftIO $ Plotter.plotMonthStats ph stats
+    liftIO $ editLastMessagePhoto h usrId image
   amount -> do
     t <- liftIO getCurrentTime
     addRecordToDb h usrId cid amount t

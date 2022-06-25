@@ -46,6 +46,9 @@ dependencies:
 - http-client-tls
 - directory
 - filepath
+- JuicyPixels
+- cairo
+- array
 
 default-extensions:
 - OverloadedStrings
