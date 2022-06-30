@@ -129,12 +129,20 @@ getTodaysRecords' uId t =
 
 getMonthRecords' :: MonadBeam Postgres m => Int32 -> UTCTime -> m [(UTCTime, Int32)]
 getMonthRecords' uId t =
-  let (year, month, day) = toGregorian $ utctDay t
+  let (year', month', day') = toGregorian $ utctDay t
    in getRecordsOf'
         ( \record ->
-            (record ^. recordUId ==. val_ uId)
-              &&. (extract_ year_ (record ^. recordTStamp) ==. val_ (fromIntegral year))
-              &&. (extract_ month_ (record ^. recordTStamp) ==. val_ (fromIntegral month))
+            let year = val_ (fromIntegral year')
+                month = val_ (fromIntegral month')
+                day = val_ (fromIntegral day')
+                rts = (record ^. recordTStamp)
+                rYear = extract_ year_ rts
+                rMonth = extract_ month_ rts
+                rDay = extract_ month_ rts
+             in (record ^. recordUId ==. val_ uId)
+                  &&. ( ((year ==. rYear) &&. ((month ==. rMonth) ||. (((month - rMonth) ==. val_ 1) &&. (rDay >=. day))))
+                          ||. ((year - rYear ==. val_ 1) &&. (month ==. val_ 1) &&. (rMonth ==. val_ 12) &&. (rDay >=. day))
+                      )
         )
 
 getTodaysRecordsStats' :: MonadBeam Postgres m => Int32 -> UTCTime -> m [(UTCTime, Int)]
