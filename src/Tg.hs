@@ -406,7 +406,7 @@ getTextWithAmount h usrId = do
   sumOfaDay <- liftIO $ Database.getSumTodaysAmount dbh usrId
   case sumOfaDay of
     (Just (Just s)) -> do
-      pure $ Just $ mconcat ["Today you have drinked ", T.pack $ show s]
+      pure $ Just $ mconcat ["Today you drank ", T.pack $ show s]
     _ -> do
       let logText = mconcat ["error in getTextWithAmount function, this is sumOfaDay: ", show sumOfaDay]
       liftIO $ Logger.error logh logText
